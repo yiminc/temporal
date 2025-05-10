@@ -86,6 +86,21 @@ func (s *MetricsSuite) TestPrometheusWithSanitizeOptions() {
 	s.NotNil(scope)
 }
 
+func (s *MetricsSuite) TestPrometheusTLSConfigDoesNotCrash() {
+	prom := &PrometheusConfig{
+		OnError:       "panic",
+		TimerType:     "histogram",
+		ListenAddress: "127.0.0.1:0",
+		TLS: &PrometheusTLS{
+			CertFile: "non-existent",
+			KeyFile:  "non-existent",
+		},
+	}
+	cfg := &Config{Prometheus: prom}
+	scope := NewScope(log.NewNoopLogger(), cfg)
+	s.NotNil(scope)
+}
+
 func (s *MetricsSuite) TestNoop() {
 	config := &Config{}
 	scope := NewScope(log.NewNoopLogger(), config)

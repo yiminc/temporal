@@ -130,6 +130,9 @@ type (
 		// If specified, will override PerUnitHistogramBoundaries["milliseconds"].
 		DefaultSummaryObjectives []SummaryObjective `yaml:"defaultSummaryObjectives"`
 
+		// TLS controls settings for metrics endpoint.
+		TLS *PrometheusTLS `yaml:"tls"`
+
 		// Deprecated. OnError specifies what to do when an error either with listening
 		// on the specified listen address or registering a metric with the
 		// Prometheus. By default the registerer will panic.
@@ -139,6 +142,15 @@ type (
 		// specify which characters are valid and/or should be replaced before metrics
 		// are emitted.
 		SanitizeOptions *SanitizeOptions `yaml:"sanitizeOptions"`
+	}
+
+	// PrometheusTLS specifies server TLS settings for metrics endpoint.
+	PrometheusTLS struct {
+		CertFile string `yaml:"certFile"`
+		KeyFile  string `yaml:"keyFile"`
+
+		// RequireClientAuth enforces mutual TLS when set.
+		RequireClientAuth bool `yaml:"requireClientAuth"`
 	}
 )
 

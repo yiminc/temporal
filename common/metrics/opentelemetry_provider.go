@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"crypto/tls"
 	"net/http"
 	"time"
 
@@ -101,7 +102,17 @@ func initPrometheusListener(
 	server := &http.Server{Addr: config.ListenAddress, Handler: handler}
 
 	go func() {
-		err := server.ListenAndServe()
+		var err error
+		if config.TLS != nil && config.TLS.CertFile != "" && config.TLS.KeyFile != "" {
+			tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
+			if config.TLS.RequireClientAuth {
+				tlsCfg.ClientAuth = tls.RequireAndVerifyClientCert
+			}
+			server.TLSConfig = tlsCfg
+			err = server.ListenAndServeTLS(config.TLS.CertFile, config.TLS.KeyFile)
+		} else {
+			err = server.ListenAndServe()
+		}
 		if err == http.ErrServerClosed {
 			return
 		}
