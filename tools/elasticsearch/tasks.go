@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/olivere/elastic/v7"
 	"go.temporal.io/server/common/log"
 	"go.temporal.io/server/common/log/tag"
 	"go.temporal.io/server/common/persistence/visibility/store/elasticsearch/client"
@@ -76,7 +75,7 @@ func (task *SetupTask) setupIndex(ctx context.Context) error {
 	success, err := task.esClient.CreateIndex(ctx, config.VisibilityIndex, nil)
 	if err != nil {
 		// Check if the error is an Elasticsearch error and if so check if the index already exists.
-		var esErr *elastic.Error
+		var esErr *client.ESError
 		if errors.As(err, &esErr) {
 			if esErr.Status == 400 && esErr.Details != nil && esErr.Details.Type == "resource_already_exists_exception" {
 				task.logger.Info("Index already exists, skipping creation", tag.NewStringTag("indexName", config.VisibilityIndex))

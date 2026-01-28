@@ -2,13 +2,13 @@ package elasticsearch
 
 import (
 	"context"
-	"encoding/json"
+	
 	"fmt"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/olivere/elastic/v7"
+	
 	"github.com/stretchr/testify/suite"
 	"go.temporal.io/server/common"
 	"go.temporal.io/server/common/collection"
@@ -236,25 +236,27 @@ func (s *processorSuite) TestAdd_ConcurrentAdd_Shutdown() {
 func (s *processorSuite) TestBulkAfterAction_Ack() {
 	version := int64(3)
 	testKey := "testKey"
-	request := elastic.NewBulkIndexRequest().
-		Index(testIndex).
-		Id(testID).
-		Version(version).
-		Doc(map[string]interface{}{sadefs.VisibilityTaskKey: testKey})
-	requests := []elastic.BulkableRequest{request}
+	request := &client.BulkableRequest{
+		RequestType: client.BulkableRequestTypeIndex,
+		Index:       testIndex,
+		ID:          testID,
+		Version:     version,
+		Doc:         map[string]interface{}{sadefs.VisibilityTaskKey: testKey},
+	}
+	requests := []*client.BulkableRequest{request}
 
-	mSuccess := map[string]*elastic.BulkResponseItem{
+	mSuccess := map[string]*client.BulkResponseItem{
 		"index": {
 			Index:   testIndex,
-			Id:      testID,
+			ID:      testID,
 			Version: version,
 			Status:  200,
 		},
 	}
-	response := &elastic.BulkResponse{
+	response := &client.BulkResponse{
 		Took:   3,
 		Errors: false,
-		Items:  []map[string]*elastic.BulkResponseItem{mSuccess},
+		Items:  []map[string]*client.BulkResponseItem{mSuccess},
 	}
 
 	queuedRequestHistogram := metrics.NewMockHistogramIface(s.controller)
@@ -281,30 +283,32 @@ func (s *processorSuite) TestBulkAfterAction_Nack() {
 	rid := "test-runID"
 	namespaceID := "test-namespaceID"
 
-	request := elastic.NewBulkIndexRequest().
-		Index(testIndex).
-		Id(testID).
-		Version(version).
-		Doc(map[string]interface{}{
+	request := &client.BulkableRequest{
+		RequestType: client.BulkableRequestTypeIndex,
+		Index:       testIndex,
+		ID:          testID,
+		Version:     version,
+		Doc:         map[string]interface{}{
 			sadefs.VisibilityTaskKey: testKey,
 			sadefs.NamespaceID:       namespaceID,
 			sadefs.WorkflowID:        wid,
 			sadefs.RunID:             rid,
-		})
-	requests := []elastic.BulkableRequest{request}
+		},
+	}
+	requests := []*client.BulkableRequest{request}
 
-	mFailed := map[string]*elastic.BulkResponseItem{
+	mFailed := map[string]*client.BulkResponseItem{
 		"index": {
 			Index:   testIndex,
-			Id:      testID,
+			ID:      testID,
 			Version: version,
 			Status:  400,
 		},
 	}
-	response := &elastic.BulkResponse{
+	response := &client.BulkResponse{
 		Took:   3,
 		Errors: false,
-		Items:  []map[string]*elastic.BulkResponseItem{mFailed},
+		Items:  []map[string]*client.BulkResponseItem{mFailed},
 	}
 
 	queuedRequestHistogram := metrics.NewMockHistogramIface(s.controller)
@@ -333,42 +337,46 @@ func (s *processorSuite) TestBulkAfterAction_Error() {
 		sadefs.VisibilityTaskKey: "str",
 	}
 
-	request := elastic.NewBulkIndexRequest().
-		Index(testIndex).
-		Id(testID).
-		Version(version).
-		Doc(doc)
-	requests := []elastic.BulkableRequest{request}
+	request := &client.BulkableRequest{
+		RequestType: client.BulkableRequestTypeIndex,
+		Index:       testIndex,
+		ID:          testID,
+		Version:     version,
+		Doc:         doc,
+	}
+	requests := []*client.BulkableRequest{request}
 
-	mFailed := map[string]*elastic.BulkResponseItem{
+	mFailed := map[string]*client.BulkResponseItem{
 		"index": {
 			Index:   testIndex,
-			Id:      testID,
+			ID:      testID,
 			Version: version,
 			Status:  400,
 		},
 	}
-	response := &elastic.BulkResponse{
+	response := &client.BulkResponse{
 		Took:   3,
 		Errors: true,
-		Items:  []map[string]*elastic.BulkResponseItem{mFailed},
+		Items:  []map[string]*client.BulkResponseItem{mFailed},
 	}
 
 	counterMetric := metrics.NewMockCounterIface(s.controller)
 	s.mockMetricHandler.EXPECT().Counter(metrics.ElasticsearchBulkProcessorFailures.Name()).Return(counterMetric)
 	counterMetric.EXPECT().Record(int64(1), metrics.HttpStatusTag(400))
-	s.esProcessor.bulkAfterAction(0, requests, response, &elastic.Error{Status: 400})
+	s.esProcessor.bulkAfterAction(0, requests, response, &client.ESError{Status: 400})
 }
 
 func (s *processorSuite) TestBulkBeforeAction() {
 	version := int64(3)
 	testKey := "testKey"
-	request := elastic.NewBulkIndexRequest().
-		Index(testIndex).
-		Id(testID).
-		Version(version).
-		Doc(map[string]interface{}{sadefs.VisibilityTaskKey: testKey})
-	requests := []elastic.BulkableRequest{request}
+	request := &client.BulkableRequest{
+		RequestType: client.BulkableRequestTypeIndex,
+		Index:       testIndex,
+		ID:          testID,
+		Version:     version,
+		Doc:         map[string]interface{}{sadefs.VisibilityTaskKey: testKey},
+	}
+	requests := []*client.BulkableRequest{request}
 
 	counterMetric := metrics.NewMockCounterIface(s.controller)
 	s.mockMetricHandler.EXPECT().Counter(metrics.ElasticsearchBulkProcessorRequests.Name()).Return(counterMetric)
@@ -433,7 +441,7 @@ func (s *processorSuite) TestHashFn() {
 }
 
 func (s *processorSuite) TestExtractVisibilityTaskKey() {
-	request := elastic.NewBulkIndexRequest()
+	request := &client.BulkableRequest{RequestType: client.BulkableRequestTypeIndex}
 	s.mockMetricHandler.EXPECT().Counter(metrics.ElasticsearchBulkProcessorCorruptedData.Name()).Return(metrics.NoopCounterMetricFunc)
 	visibilityTaskKey := s.esProcessor.extractVisibilityTaskKey(request)
 	s.Equal("", visibilityTaskKey)
@@ -441,40 +449,30 @@ func (s *processorSuite) TestExtractVisibilityTaskKey() {
 	m := map[string]interface{}{
 		sadefs.VisibilityTaskKey: 1,
 	}
-	request.Doc(m)
+	request.Doc = m
 	s.Panics(func() { s.esProcessor.extractVisibilityTaskKey(request) })
 
 	testKey := "test-key"
 	m[sadefs.VisibilityTaskKey] = testKey
-	request.Doc(m)
+	request.Doc = m
 	s.Equal(testKey, s.esProcessor.extractVisibilityTaskKey(request))
 }
 
 func (s *processorSuite) TestExtractVisibilityTaskKey_Delete() {
-	request := elastic.NewBulkDeleteRequest()
+	request := &client.BulkableRequest{RequestType: client.BulkableRequestTypeDelete}
 
-	// ensure compatible with dependency
-	source, err := request.Source()
-	s.NoError(err)
-	s.Equal(1, len(source))
-	var body map[string]map[string]interface{}
-	err = json.Unmarshal([]byte(source[0]), &body)
-	s.NoError(err)
-	_, ok := body["delete"]
-	s.True(ok)
-
-	s.mockMetricHandler.EXPECT().Counter(metrics.ElasticsearchBulkProcessorCorruptedData.Name()).Return(metrics.NoopCounterMetricFunc)
+	// For delete requests, the visibility task key is the document ID
 	key := s.esProcessor.extractVisibilityTaskKey(request)
 	s.Equal("", key)
 
 	id := "id"
-	request.Id(id)
+	request.ID = id
 	key = s.esProcessor.extractVisibilityTaskKey(request)
 	s.Equal(id, key)
 }
 
 func (s *processorSuite) TestIsResponseSuccess() {
-	item := &elastic.BulkResponseItem{}
+	item := &client.BulkResponseItem{}
 
 	for status := 200; status < 300; status++ {
 		item.Status = status
@@ -485,7 +483,7 @@ func (s *processorSuite) TestIsResponseSuccess() {
 	s.True(isSuccess(item))
 	item.Status = 404
 	s.True(isSuccess(item))
-	item.Error = &elastic.ErrorDetails{Type: "index_not_found_exception"}
+	item.Error = &client.ErrorDetails{Type: "index_not_found_exception"}
 	s.False(isSuccess(item))
 
 	for _, status := range []int{100, 199, 300, 400, 500, 408, 429, 503, 507} {
@@ -496,9 +494,9 @@ func (s *processorSuite) TestIsResponseSuccess() {
 
 func (s *processorSuite) TestErrorReasonFromResponse() {
 	reason := "error reason"
-	resp := &elastic.BulkResponseItem{Status: 400}
+	resp := &client.BulkResponseItem{Status: 400}
 	s.Equal("", extractErrorReason(resp))
-	resp.Error = &elastic.ErrorDetails{Reason: reason}
+	resp.Error = &client.ErrorDetails{Reason: reason}
 	s.Equal(reason, extractErrorReason(resp))
 }
 
@@ -508,11 +506,11 @@ func (s *processorSuite) Test_End2End() {
 	version := int64(2208) // random
 
 	request := &client.BulkableRequest{}
-	bulkIndexRequests := make([]elastic.BulkableRequest, docsCount)
-	bulkIndexResponse := &elastic.BulkResponse{
+	bulkIndexRequests := make([]*client.BulkableRequest, docsCount)
+	bulkIndexResponse := &client.BulkResponse{
 		Took:   3,
 		Errors: false,
-		Items:  make([]map[string]*elastic.BulkResponseItem, docsCount),
+		Items:  make([]map[string]*client.BulkResponseItem, docsCount),
 	}
 	futures := make([]future.Future[bool], docsCount)
 
@@ -530,16 +528,18 @@ func (s *processorSuite) Test_End2End() {
 				testKey := fmt.Sprintf("test-key-%d-%d", i, j)
 				docId := fmt.Sprintf("docId-%d", docIndex)
 				futures[docIndex] = s.esProcessor.Add(request, testKey)
-				bulkIndexRequests[docIndex] = elastic.NewBulkIndexRequest().
-					Index(testIndex).
-					Id(docId).
-					Version(version).
-					Doc(map[string]interface{}{sadefs.VisibilityTaskKey: testKey})
+				bulkIndexRequests[docIndex] = &client.BulkableRequest{
+		RequestType: client.BulkableRequestTypeIndex,
+		Index:       testIndex,
+		ID:          docId,
+		Version:     version,
+		Doc:         map[string]interface{}{sadefs.VisibilityTaskKey: testKey},
+	}
 
-				mSuccess := map[string]*elastic.BulkResponseItem{
+				mSuccess := map[string]*client.BulkResponseItem{
 					"index": {
 						Index:   testIndex,
-						Id:      docId,
+						ID:      docId,
 						Version: version,
 						Status:  200,
 					},

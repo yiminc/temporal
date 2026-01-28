@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/olivere/elastic/v7"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -134,7 +133,7 @@ func (a *activities) AddESMappingFieldActivity(ctx context.Context, params Workf
 }
 
 func (a *activities) isRetryableError(err error) bool {
-	var esErr *elastic.Error
+	var esErr *esclient.ESError
 	if !errors.As(err, &esErr) {
 		return true
 	}

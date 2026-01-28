@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/dgryski/go-farm"
-	"github.com/olivere/elastic/v7"
 	"go.temporal.io/server/common"
 	"go.temporal.io/server/common/collection"
 	"go.temporal.io/server/common/dynamicconfig"
@@ -34,7 +33,7 @@ type (
 		Stop()
 	}
 
-	// processorImpl implements Processor, it's an agent of elastic.BulkProcessor
+	// processorImpl implements Processor, it's an agent of client.BulkProcessor
 	processorImpl struct {
 		status                  int32
 		bulkProcessor           client.BulkProcessor
@@ -183,7 +182,7 @@ func (p *processorImpl) Add(request *client.BulkableRequest, visibilityTaskKey s
 }
 
 // bulkBeforeAction is triggered before bulk processor commit
-func (p *processorImpl) bulkBeforeAction(_ int64, requests []elastic.BulkableRequest) {
+func (p *processorImpl) bulkBeforeAction(_ int64, requests []*client.BulkableRequest) {
 	metrics.ElasticsearchBulkProcessorRequests.With(p.metricsHandler).Record(int64(len(requests)))
 	p.metricsHandler.Histogram(metrics.ElasticsearchBulkProcessorBulkSize.Name(), metrics.ElasticsearchBulkProcessorBulkSize.Unit()).
 		Record(int64(len(requests)))
@@ -205,11 +204,11 @@ func (p *processorImpl) bulkBeforeAction(_ int64, requests []elastic.BulkableReq
 }
 
 // bulkAfterAction is triggered after bulk processor commit
-func (p *processorImpl) bulkAfterAction(_ int64, requests []elastic.BulkableRequest, response *elastic.BulkResponse, err error) {
+func (p *processorImpl) bulkAfterAction(_ int64, requests []*client.BulkableRequest, response *client.BulkResponse, err error) {
 	if err != nil {
 		const logFirstNRequests = 5
 		var httpStatus int
-		var esErr *elastic.Error
+		var esErr *client.ESError
 		if errors.As(err, &esErr) {
 			httpStatus = esErr.Status
 		}
@@ -217,7 +216,7 @@ func (p *processorImpl) bulkAfterAction(_ int64, requests []elastic.BulkableRequ
 		var logRequests strings.Builder
 		for i, request := range requests {
 			if i < logFirstNRequests {
-				logRequests.WriteString(request.String())
+				logRequests.WriteString(formatBulkableRequest(request))
 				logRequests.WriteRune('\n')
 			}
 			metrics.ElasticsearchBulkProcessorFailures.With(p.metricsHandler).Record(1, metrics.HttpStatusTag(httpStatus))
@@ -242,14 +241,14 @@ func (p *processorImpl) bulkAfterAction(_ int64, requests []elastic.BulkableRequ
 			continue
 		}
 
-		docID := p.extractDocID(request)
+		docID := request.ID
 		responseItem, ok := responseIndex[docID]
 		if !ok {
 			p.logger.Error("ES request failed. Request item doesn't have corresponding response item.",
 				tag.Value(i),
 				tag.Key(visibilityTaskKey),
 				tag.ESDocID(docID),
-				tag.ESRequest(request.String()))
+				tag.ESRequest(formatBulkableRequest(request)))
 			metrics.ElasticsearchBulkProcessorCorruptedData.With(p.metricsHandler).Record(1)
 			p.notifyResult(visibilityTaskKey, false)
 			continue
@@ -261,7 +260,7 @@ func (p *processorImpl) bulkAfterAction(_ int64, requests []elastic.BulkableRequ
 				tag.ESResponseError(extractErrorReason(responseItem)),
 				tag.Key(visibilityTaskKey),
 				tag.ESDocID(docID),
-				tag.ESRequest(request.String()))
+				tag.ESRequest(formatBulkableRequest(request)))
 			metrics.ElasticsearchBulkProcessorFailures.With(p.metricsHandler).Record(1, metrics.HttpStatusTag(responseItem.Status))
 			p.notifyResult(visibilityTaskKey, false)
 			continue
@@ -275,16 +274,16 @@ func (p *processorImpl) bulkAfterAction(_ int64, requests []elastic.BulkableRequ
 		Record(int64(p.mapToAckFuture.Len()))
 }
 
-func (p *processorImpl) buildResponseIndex(response *elastic.BulkResponse) map[string]*elastic.BulkResponseItem {
-	result := make(map[string]*elastic.BulkResponseItem)
+func (p *processorImpl) buildResponseIndex(response *client.BulkResponse) map[string]*client.BulkResponseItem {
+	result := make(map[string]*client.BulkResponseItem)
 	for _, operationResponseItemMap := range response.Items {
 		for _, responseItem := range operationResponseItemMap {
-			existingResponseItem, duplicateID := result[responseItem.Id]
+			existingResponseItem, duplicateID := result[responseItem.ID]
 			// In some rare cases, there might be duplicate document Ids in the same bulk.
 			// (for example, if two sequential upsert search attributes operation for the same workflow run end up being in the same bulk request)
 			// In this case, item with greater status code (error) will overwrite existing item with smaller status code.
 			if !duplicateID || existingResponseItem.Status < responseItem.Status {
-				result[responseItem.Id] = responseItem
+				result[responseItem.ID] = responseItem
 			}
 		}
 	}
@@ -304,64 +303,34 @@ func (p *processorImpl) notifyResult(visibilityTaskKey string, ack bool) {
 	})
 }
 
-func (p *processorImpl) extractVisibilityTaskKey(request elastic.BulkableRequest) string {
-	req, err := request.Source()
-	if err != nil {
-		p.logger.Error("Unable to get ES request source.", tag.Error(err), tag.ESRequest(request.String()))
+func (p *processorImpl) extractVisibilityTaskKey(request *client.BulkableRequest) string {
+	if request.RequestType == client.BulkableRequestTypeDelete {
+		return request.ID
+	}
+
+	// For index requests, get the key from the document
+	if request.Doc == nil {
+		p.logger.Error("Unable to extract VisibilityTaskKey from ES request: Doc is nil", tag.ESDocID(request.ID))
 		metrics.ElasticsearchBulkProcessorCorruptedData.With(p.metricsHandler).Record(1)
 		return ""
 	}
 
-	if len(req) == 2 { // index or update requests
-		var body map[string]interface{}
-		if err = json.Unmarshal([]byte(req[1]), &body); err != nil {
-			p.logger.Error("Unable to unmarshal ES request body.", tag.Error(err))
-			metrics.ElasticsearchBulkProcessorCorruptedData.With(p.metricsHandler).Record(1)
-			return ""
-		}
-
-		k, ok := body[sadefs.VisibilityTaskKey]
-		if !ok {
-			p.logger.Error("Unable to extract VisibilityTaskKey from ES request.", tag.ESRequest(request.String()))
-			metrics.ElasticsearchBulkProcessorCorruptedData.With(p.metricsHandler).Record(1)
-			return ""
-		}
-		return k.(string)
-	} else { // delete requests
-		return p.extractDocID(request)
+	k, ok := request.Doc[sadefs.VisibilityTaskKey]
+	if !ok {
+		p.logger.Error("Unable to extract VisibilityTaskKey from ES request.", tag.ESRequest(formatBulkableRequest(request)))
+		metrics.ElasticsearchBulkProcessorCorruptedData.With(p.metricsHandler).Record(1)
+		return ""
 	}
+	return k.(string)
 }
 
-func (p *processorImpl) extractDocID(request elastic.BulkableRequest) string {
-	req, err := request.Source()
-	if err != nil {
-		p.logger.Error("Unable to get ES request source.", tag.Error(err), tag.ESRequest(request.String()))
-		metrics.ElasticsearchBulkProcessorCorruptedData.With(p.metricsHandler).Record(1)
-
-		return ""
-	}
-
-	var body map[string]map[string]interface{}
-	if err = json.Unmarshal([]byte(req[0]), &body); err != nil {
-		p.logger.Error("Unable to unmarshal ES request body.", tag.Error(err), tag.ESRequest(request.String()))
-		metrics.ElasticsearchBulkProcessorCorruptedData.With(p.metricsHandler).Record(1)
-		return ""
-	}
-
-	// There should be only one operation "index" or "delete".
-	for _, opMap := range body {
-		_id, ok := opMap["_id"]
-		if ok {
-			return _id.(string)
-		}
-	}
-
-	p.logger.Error("Unable to extract _id from ES request.", tag.ESRequest(request.String()))
-	metrics.ElasticsearchBulkProcessorCorruptedData.With(p.metricsHandler).Record(1)
-	return ""
+func formatBulkableRequest(request *client.BulkableRequest) string {
+	docBytes, _ := json.Marshal(request.Doc)
+	return fmt.Sprintf("type=%d, index=%s, id=%s, version=%d, doc=%s",
+		request.RequestType, request.Index, request.ID, request.Version, string(docBytes))
 }
 
-func isSuccess(item *elastic.BulkResponseItem) bool {
+func isSuccess(item *client.BulkResponseItem) bool {
 	if item.Status >= 200 && item.Status < 300 {
 		return true
 	}
@@ -383,7 +352,7 @@ func isSuccess(item *elastic.BulkResponseItem) bool {
 	return false
 }
 
-func extractErrorReason(resp *elastic.BulkResponseItem) string {
+func extractErrorReason(resp *client.BulkResponseItem) string {
 	if resp.Error != nil {
 		return resp.Error.Reason
 	}

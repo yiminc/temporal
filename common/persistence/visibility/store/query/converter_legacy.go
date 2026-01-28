@@ -6,18 +6,18 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/olivere/elastic/v7"
 	"github.com/temporalio/sqlparser"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/server/chasm"
 	"go.temporal.io/server/common/persistence/visibility/store"
+	esquery "go.temporal.io/server/common/persistence/visibility/store/elasticsearch/client/query"
 	"go.temporal.io/server/common/searchattribute"
 	"go.temporal.io/server/common/sqlquery"
 )
 
 type (
 	ExprConverter interface {
-		Convert(expr sqlparser.Expr) (elastic.Query, error)
+		Convert(expr sqlparser.Expr) (esquery.Query, error)
 	}
 
 	ConverterLegacy struct {
@@ -62,9 +62,14 @@ type (
 	notSupportedExprConverter struct{}
 
 	QueryParamsLegacy struct {
-		Query   elastic.Query
-		Sorter  []elastic.Sorter
+		Query   esquery.Query
+		Sorter  []esquery.Sorter
 		GroupBy []string
+	}
+
+	// boolQuery wraps esquery.BoolQuery to allow easy manipulation during query building
+	boolQuery struct {
+		*esquery.BoolQuery
 	}
 )
 
@@ -222,8 +227,8 @@ func (c *ConverterLegacy) convertSelect(sel *sqlparser.Select) (*QueryParamsLega
 			return nil, wrapConverterError("unable to convert filter expression", err)
 		}
 		// Result must be BoolQuery.
-		if _, isBoolQuery := query.(*elastic.BoolQuery); !isBoolQuery {
-			query = elastic.NewBoolQuery().Filter(query)
+		if _, isBoolQuery := query.(*esquery.BoolQuery); !isBoolQuery {
+			query = esquery.NewBoolQuery().Filter(query)
 		}
 		queryParams.Query = query
 	}
@@ -244,7 +249,7 @@ func (c *ConverterLegacy) convertSelect(sel *sqlparser.Select) (*QueryParamsLega
 		if err != nil {
 			return nil, wrapConverterError("unable to convert 'order by' column name", err)
 		}
-		fieldSort := elastic.NewFieldSort(colName).Missing("_last")
+		fieldSort := esquery.NewFieldSort(colName).Missing("_last")
 		if orderByExpr.Direction == sqlparser.DescScr {
 			fieldSort = fieldSort.Desc()
 		}
@@ -261,7 +266,7 @@ func (c *ConverterLegacy) convertSelect(sel *sqlparser.Select) (*QueryParamsLega
 	return queryParams, nil
 }
 
-func (w *WhereConverter) Convert(expr sqlparser.Expr) (elastic.Query, error) {
+func (w *WhereConverter) Convert(expr sqlparser.Expr) (esquery.Query, error) {
 	if expr == nil {
 		return nil, errors.New("cannot be nil")
 	}
@@ -290,7 +295,7 @@ func (w *WhereConverter) Convert(expr sqlparser.Expr) (elastic.Query, error) {
 	}
 }
 
-func (a *andConverter) Convert(expr sqlparser.Expr) (elastic.Query, error) {
+func (a *andConverter) Convert(expr sqlparser.Expr) (esquery.Query, error) {
 	andExpr, ok := expr.(*sqlparser.AndExpr)
 	if !ok {
 		return nil, NewConverterError("%v is not an 'and' expression", sqlparser.String(expr))
@@ -308,22 +313,22 @@ func (a *andConverter) Convert(expr sqlparser.Expr) (elastic.Query, error) {
 	}
 
 	// If left or right is a BoolQuery built from AndExpr then reuse it w/o creating new BoolQuery.
-	lqBool, isLQBool := leftQuery.(*elastic.BoolQuery)
+	lqBool, isLQBool := leftQuery.(*esquery.BoolQuery)
 	_, isLEAnd := leftExpr.(*sqlparser.AndExpr)
 	if isLQBool && isLEAnd {
 		return lqBool.Filter(rightQuery), nil
 	}
 
-	rqBool, isRQBool := rightQuery.(*elastic.BoolQuery)
+	rqBool, isRQBool := rightQuery.(*esquery.BoolQuery)
 	_, isREAnd := rightExpr.(*sqlparser.AndExpr)
 	if isRQBool && isREAnd {
 		return rqBool.Filter(leftQuery), nil
 	}
 
-	return elastic.NewBoolQuery().Filter(leftQuery, rightQuery), nil
+	return esquery.NewBoolQuery().Filter(leftQuery, rightQuery), nil
 }
 
-func (o *orConverter) Convert(expr sqlparser.Expr) (elastic.Query, error) {
+func (o *orConverter) Convert(expr sqlparser.Expr) (esquery.Query, error) {
 	orExpr, ok := expr.(*sqlparser.OrExpr)
 	if !ok {
 		return nil, NewConverterError("%v is not an 'or' expression", sqlparser.String(expr))
@@ -341,22 +346,22 @@ func (o *orConverter) Convert(expr sqlparser.Expr) (elastic.Query, error) {
 	}
 
 	// If left or right is a BoolQuery built from OrExpr then reuse it w/o creating new BoolQuery.
-	lqBool, isLQBool := leftQuery.(*elastic.BoolQuery)
+	lqBool, isLQBool := leftQuery.(*esquery.BoolQuery)
 	_, isLEOr := leftExpr.(*sqlparser.OrExpr)
 	if isLQBool && isLEOr {
 		return lqBool.Should(rightQuery), nil
 	}
 
-	rqBool, isRQBool := rightQuery.(*elastic.BoolQuery)
+	rqBool, isRQBool := rightQuery.(*esquery.BoolQuery)
 	_, isREOr := rightExpr.(*sqlparser.OrExpr)
 	if isRQBool && isREOr {
 		return rqBool.Should(leftQuery), nil
 	}
 
-	return elastic.NewBoolQuery().Should(leftQuery, rightQuery), nil
+	return esquery.NewBoolQuery().Should(leftQuery, rightQuery), nil
 }
 
-func (r *rangeCondConverter) Convert(expr sqlparser.Expr) (elastic.Query, error) {
+func (r *rangeCondConverter) Convert(expr sqlparser.Expr) (esquery.Query, error) {
 	rangeCond, ok := expr.(*sqlparser.RangeCond)
 	if !ok {
 		return nil, NewConverterError("%v is not a range condition", sqlparser.String(expr))
@@ -383,22 +388,22 @@ func (r *rangeCondConverter) Convert(expr sqlparser.Expr) (elastic.Query, error)
 	fromValue = values[0]
 	toValue = values[1]
 
-	var query elastic.Query
+	var query esquery.Query
 	switch rangeCond.Operator {
 	case "between":
-		query = elastic.NewRangeQuery(colName).Gte(fromValue).Lte(toValue)
+		query = esquery.NewRangeQuery(colName).Gte(fromValue).Lte(toValue)
 	case "not between":
 		if !r.notBetweenSupported {
 			return nil, NewConverterError("%s: 'not between' expression", NotSupportedErrMessage)
 		}
-		query = elastic.NewBoolQuery().MustNot(elastic.NewRangeQuery(colName).Gte(fromValue).Lte(toValue))
+		query = esquery.NewBoolQuery().MustNot(esquery.NewRangeQuery(colName).Gte(fromValue).Lte(toValue))
 	default:
 		return nil, NewConverterError("%s: range condition operator must be 'between' or 'not between'", InvalidExpressionErrMessage)
 	}
 	return query, nil
 }
 
-func (i *isConverter) Convert(expr sqlparser.Expr) (elastic.Query, error) {
+func (i *isConverter) Convert(expr sqlparser.Expr) (esquery.Query, error) {
 	isExpr, ok := expr.(*sqlparser.IsExpr)
 	if !ok {
 		return nil, NewConverterError("%v is not an 'is' expression", sqlparser.String(expr))
@@ -409,12 +414,12 @@ func (i *isConverter) Convert(expr sqlparser.Expr) (elastic.Query, error) {
 		return nil, wrapConverterError("unable to convert left part of 'is' expression", err)
 	}
 
-	var query elastic.Query
+	var query esquery.Query
 	switch isExpr.Operator {
 	case "is null":
-		query = elastic.NewBoolQuery().MustNot(elastic.NewExistsQuery(colName))
+		query = esquery.NewBoolQuery().MustNot(esquery.NewExistsQuery(colName))
 	case "is not null":
-		query = elastic.NewExistsQuery(colName)
+		query = esquery.NewExistsQuery(colName)
 	default:
 		return nil, NewConverterError("%s: 'is' operator can be used with 'null' and 'not null' only", InvalidExpressionErrMessage)
 	}
@@ -422,7 +427,7 @@ func (i *isConverter) Convert(expr sqlparser.Expr) (elastic.Query, error) {
 	return query, nil
 }
 
-func (c *comparisonExprConverter) Convert(expr sqlparser.Expr) (elastic.Query, error) {
+func (c *comparisonExprConverter) Convert(expr sqlparser.Expr) (esquery.Query, error) {
 	comparisonExpr, ok := expr.(*sqlparser.ComparisonExpr)
 	if !ok {
 		return nil, NewConverterError("%v is not a comparison expression", sqlparser.String(expr))
@@ -464,47 +469,47 @@ func (c *comparisonExprConverter) Convert(expr sqlparser.Expr) (elastic.Query, e
 		return nil, err
 	}
 
-	var query elastic.Query
+	var query esquery.Query
 	//nolint:revive // missing default case
 	switch comparisonExpr.Operator {
 	case sqlparser.GreaterEqualStr:
-		query = elastic.NewRangeQuery(colName).Gte(colValues[0])
+		query = esquery.NewRangeQuery(colName).Gte(colValues[0])
 	case sqlparser.LessEqualStr:
-		query = elastic.NewRangeQuery(colName).Lte(colValues[0])
+		query = esquery.NewRangeQuery(colName).Lte(colValues[0])
 	case sqlparser.GreaterThanStr:
-		query = elastic.NewRangeQuery(colName).Gt(colValues[0])
+		query = esquery.NewRangeQuery(colName).Gt(colValues[0])
 	case sqlparser.LessThanStr:
-		query = elastic.NewRangeQuery(colName).Lt(colValues[0])
+		query = esquery.NewRangeQuery(colName).Lt(colValues[0])
 	case sqlparser.EqualStr:
-		// Not elastic.NewTermQuery to support partial word match for String custom search attributes.
+		// Not esquery.NewTermQuery to support partial word match for String custom search attributes.
 		if tp == enumspb.INDEXED_VALUE_TYPE_KEYWORD || tp == enumspb.INDEXED_VALUE_TYPE_KEYWORD_LIST {
-			query = elastic.NewTermQuery(colName, colValues[0])
+			query = esquery.NewTermQuery(colName, colValues[0])
 		} else {
-			query = elastic.NewMatchQuery(colName, colValues[0])
+			query = esquery.NewMatchQuery(colName, colValues[0])
 		}
 	case sqlparser.NotEqualStr:
-		// Not elastic.NewTermQuery to support partial word match for String custom search attributes.
+		// Not esquery.NewTermQuery to support partial word match for String custom search attributes.
 		if tp == enumspb.INDEXED_VALUE_TYPE_KEYWORD || tp == enumspb.INDEXED_VALUE_TYPE_KEYWORD_LIST {
-			query = elastic.NewBoolQuery().MustNot(elastic.NewTermQuery(colName, colValues[0]))
+			query = esquery.NewBoolQuery().MustNot(esquery.NewTermQuery(colName, colValues[0]))
 		} else {
-			query = elastic.NewBoolQuery().MustNot(elastic.NewMatchQuery(colName, colValues[0]))
+			query = esquery.NewBoolQuery().MustNot(esquery.NewMatchQuery(colName, colValues[0]))
 		}
 	case sqlparser.InStr:
-		query = elastic.NewTermsQuery(colName, colValues...)
+		query = esquery.NewTermsQuery(colName, colValues...)
 	case sqlparser.NotInStr:
-		query = elastic.NewBoolQuery().MustNot(elastic.NewTermsQuery(colName, colValues...))
+		query = esquery.NewBoolQuery().MustNot(esquery.NewTermsQuery(colName, colValues...))
 	case sqlparser.StartsWithStr:
 		v, ok := colValues[0].(string)
 		if !ok {
 			return nil, NewConverterError("right-hand side of '%v' must be a string", comparisonExpr.Operator)
 		}
-		query = elastic.NewPrefixQuery(colName, v)
+		query = esquery.NewPrefixQuery(colName, v)
 	case sqlparser.NotStartsWithStr:
 		v, ok := colValues[0].(string)
 		if !ok {
 			return nil, NewConverterError("right-hand side of '%v' must be a string", comparisonExpr.Operator)
 		}
-		query = elastic.NewBoolQuery().MustNot(elastic.NewPrefixQuery(colName, v))
+		query = esquery.NewBoolQuery().MustNot(esquery.NewPrefixQuery(colName, v))
 	}
 
 	return query, nil
@@ -549,7 +554,7 @@ func convertComparisonExprValue(expr sqlparser.Expr) (interface{}, error) {
 	}
 }
 
-func (n *notSupportedExprConverter) Convert(expr sqlparser.Expr) (elastic.Query, error) {
+func (n *notSupportedExprConverter) Convert(expr sqlparser.Expr) (esquery.Query, error) {
 	return nil, NewConverterError("%s: expression of type %T", NotSupportedErrMessage, expr)
 }
 

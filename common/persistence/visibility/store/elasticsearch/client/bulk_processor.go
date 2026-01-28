@@ -4,8 +4,6 @@ package client
 
 import (
 	"time"
-
-	"github.com/olivere/elastic/v7"
 )
 
 type BulkableRequestType uint8
@@ -21,6 +19,15 @@ type (
 		Add(request *BulkableRequest)
 	}
 
+	// BulkBeforeFunc defines the signature of a callback that is called
+	// before a commit to Elasticsearch.
+	BulkBeforeFunc func(executionID int64, requests []*BulkableRequest)
+
+	// BulkAfterFunc defines the signature of a callback that is called
+	// after a commit to Elasticsearch. The err parameter is only set when
+	// the entire bulk request failed (e.g., network issues).
+	BulkAfterFunc func(executionID int64, requests []*BulkableRequest, response *BulkResponse, err error)
+
 	// BulkProcessorParameters holds all required and optional parameters for executing bulk service
 	BulkProcessorParameters struct {
 		Name          string
@@ -28,8 +35,8 @@ type (
 		BulkActions   int
 		BulkSize      int
 		FlushInterval time.Duration
-		BeforeFunc    elastic.BulkBeforeFunc
-		AfterFunc     elastic.BulkAfterFunc
+		BeforeFunc    BulkBeforeFunc
+		AfterFunc     BulkAfterFunc
 	}
 
 	BulkableRequest struct {

@@ -6,8 +6,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/olivere/elastic/v7"
 	enumspb "go.temporal.io/api/enums/v1"
+	"go.temporal.io/server/common/persistence/visibility/store/elasticsearch/client/query"
 )
 
 const (
@@ -18,10 +18,10 @@ const (
 type (
 	// Client is a wrapper around Elasticsearch client library.
 	Client interface {
-		Get(ctx context.Context, index string, docID string) (*elastic.GetResult, error)
-		Search(ctx context.Context, p *SearchParameters) (*elastic.SearchResult, error)
-		Count(ctx context.Context, index string, query elastic.Query) (int64, error)
-		CountGroupBy(ctx context.Context, index string, query elastic.Query, aggName string, agg elastic.Aggregation) (*elastic.SearchResult, error)
+		Get(ctx context.Context, index string, docID string) (*GetResult, error)
+		Search(ctx context.Context, p *SearchParameters) (*SearchResult, error)
+		Count(ctx context.Context, index string, query query.Query) (int64, error)
+		CountGroupBy(ctx context.Context, index string, query query.Query, aggName string, agg query.Aggregation) (*SearchResult, error)
 		RunBulkProcessor(ctx context.Context, p *BulkProcessorParameters) (BulkProcessor, error)
 
 		// TODO (alex): move this to some admin client (and join with IntegrationTestsClient)
@@ -31,7 +31,7 @@ type (
 		IndexExists(ctx context.Context, indexName string) (bool, error)
 		CreateIndex(ctx context.Context, index string, body map[string]any) (bool, error)
 		DeleteIndex(ctx context.Context, indexName string) (bool, error)
-		CatIndices(ctx context.Context, target string) (elastic.CatIndicesResponse, error)
+		CatIndices(ctx context.Context, target string) (CatIndicesResponse, error)
 	}
 
 	CLIClient interface {
@@ -47,16 +47,16 @@ type (
 		Client
 		IndexPutTemplate(ctx context.Context, templateName string, bodyString string) (bool, error)
 		IndexPutSettings(ctx context.Context, indexName string, bodyString string) (bool, error)
-		IndexGetSettings(ctx context.Context, indexName string) (map[string]*elastic.IndicesGetSettingsResponse, error)
+		IndexGetSettings(ctx context.Context, indexName string) (map[string]*IndicesGetSettingsResponse, error)
 		Ping(ctx context.Context) error
 	}
 
 	// SearchParameters holds all required and optional parameters for executing a search.
 	SearchParameters struct {
 		Index       string
-		Query       elastic.Query
+		Query       query.Query
 		PageSize    int
-		Sorter      []elastic.Sorter
+		Sorter      []query.Sorter
 		SearchAfter []interface{}
 	}
 )

@@ -13,8 +13,8 @@ import (
 	context "context"
 	reflect "reflect"
 
-	elastic "github.com/olivere/elastic/v7"
 	enums "go.temporal.io/api/enums/v1"
+	query "go.temporal.io/server/common/persistence/visibility/store/elasticsearch/client/query"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -43,10 +43,10 @@ func (m *MockClient) EXPECT() *MockClientMockRecorder {
 }
 
 // CatIndices mocks base method.
-func (m *MockClient) CatIndices(ctx context.Context, target string) (elastic.CatIndicesResponse, error) {
+func (m *MockClient) CatIndices(ctx context.Context, target string) (CatIndicesResponse, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CatIndices", ctx, target)
-	ret0, _ := ret[0].(elastic.CatIndicesResponse)
+	ret0, _ := ret[0].(CatIndicesResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -58,33 +58,33 @@ func (mr *MockClientMockRecorder) CatIndices(ctx, target any) *gomock.Call {
 }
 
 // Count mocks base method.
-func (m *MockClient) Count(ctx context.Context, index string, query elastic.Query) (int64, error) {
+func (m *MockClient) Count(ctx context.Context, index string, arg2 query.Query) (int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Count", ctx, index, query)
+	ret := m.ctrl.Call(m, "Count", ctx, index, arg2)
 	ret0, _ := ret[0].(int64)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Count indicates an expected call of Count.
-func (mr *MockClientMockRecorder) Count(ctx, index, query any) *gomock.Call {
+func (mr *MockClientMockRecorder) Count(ctx, index, arg2 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Count", reflect.TypeOf((*MockClient)(nil).Count), ctx, index, query)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Count", reflect.TypeOf((*MockClient)(nil).Count), ctx, index, arg2)
 }
 
 // CountGroupBy mocks base method.
-func (m *MockClient) CountGroupBy(ctx context.Context, index string, query elastic.Query, aggName string, agg elastic.Aggregation) (*elastic.SearchResult, error) {
+func (m *MockClient) CountGroupBy(ctx context.Context, index string, arg2 query.Query, aggName string, agg query.Aggregation) (*SearchResult, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CountGroupBy", ctx, index, query, aggName, agg)
-	ret0, _ := ret[0].(*elastic.SearchResult)
+	ret := m.ctrl.Call(m, "CountGroupBy", ctx, index, arg2, aggName, agg)
+	ret0, _ := ret[0].(*SearchResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CountGroupBy indicates an expected call of CountGroupBy.
-func (mr *MockClientMockRecorder) CountGroupBy(ctx, index, query, aggName, agg any) *gomock.Call {
+func (mr *MockClientMockRecorder) CountGroupBy(ctx, index, arg2, aggName, agg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountGroupBy", reflect.TypeOf((*MockClient)(nil).CountGroupBy), ctx, index, query, aggName, agg)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountGroupBy", reflect.TypeOf((*MockClient)(nil).CountGroupBy), ctx, index, arg2, aggName, agg)
 }
 
 // CreateIndex mocks base method.
@@ -118,10 +118,10 @@ func (mr *MockClientMockRecorder) DeleteIndex(ctx, indexName any) *gomock.Call {
 }
 
 // Get mocks base method.
-func (m *MockClient) Get(ctx context.Context, index, docID string) (*elastic.GetResult, error) {
+func (m *MockClient) Get(ctx context.Context, index, docID string) (*GetResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Get", ctx, index, docID)
-	ret0, _ := ret[0].(*elastic.GetResult)
+	ret0, _ := ret[0].(*GetResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -193,10 +193,10 @@ func (mr *MockClientMockRecorder) RunBulkProcessor(ctx, p any) *gomock.Call {
 }
 
 // Search mocks base method.
-func (m *MockClient) Search(ctx context.Context, p *SearchParameters) (*elastic.SearchResult, error) {
+func (m *MockClient) Search(ctx context.Context, p *SearchParameters) (*SearchResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Search", ctx, p)
-	ret0, _ := ret[0].(*elastic.SearchResult)
+	ret0, _ := ret[0].(*SearchResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -247,10 +247,10 @@ func (m *MockCLIClient) EXPECT() *MockCLIClientMockRecorder {
 }
 
 // CatIndices mocks base method.
-func (m *MockCLIClient) CatIndices(ctx context.Context, target string) (elastic.CatIndicesResponse, error) {
+func (m *MockCLIClient) CatIndices(ctx context.Context, target string) (CatIndicesResponse, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CatIndices", ctx, target)
-	ret0, _ := ret[0].(elastic.CatIndicesResponse)
+	ret0, _ := ret[0].(CatIndicesResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -277,33 +277,33 @@ func (mr *MockCLIClientMockRecorder) ClusterPutSettings(ctx, bodyString any) *go
 }
 
 // Count mocks base method.
-func (m *MockCLIClient) Count(ctx context.Context, index string, query elastic.Query) (int64, error) {
+func (m *MockCLIClient) Count(ctx context.Context, index string, arg2 query.Query) (int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Count", ctx, index, query)
+	ret := m.ctrl.Call(m, "Count", ctx, index, arg2)
 	ret0, _ := ret[0].(int64)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Count indicates an expected call of Count.
-func (mr *MockCLIClientMockRecorder) Count(ctx, index, query any) *gomock.Call {
+func (mr *MockCLIClientMockRecorder) Count(ctx, index, arg2 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Count", reflect.TypeOf((*MockCLIClient)(nil).Count), ctx, index, query)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Count", reflect.TypeOf((*MockCLIClient)(nil).Count), ctx, index, arg2)
 }
 
 // CountGroupBy mocks base method.
-func (m *MockCLIClient) CountGroupBy(ctx context.Context, index string, query elastic.Query, aggName string, agg elastic.Aggregation) (*elastic.SearchResult, error) {
+func (m *MockCLIClient) CountGroupBy(ctx context.Context, index string, arg2 query.Query, aggName string, agg query.Aggregation) (*SearchResult, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CountGroupBy", ctx, index, query, aggName, agg)
-	ret0, _ := ret[0].(*elastic.SearchResult)
+	ret := m.ctrl.Call(m, "CountGroupBy", ctx, index, arg2, aggName, agg)
+	ret0, _ := ret[0].(*SearchResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CountGroupBy indicates an expected call of CountGroupBy.
-func (mr *MockCLIClientMockRecorder) CountGroupBy(ctx, index, query, aggName, agg any) *gomock.Call {
+func (mr *MockCLIClientMockRecorder) CountGroupBy(ctx, index, arg2, aggName, agg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountGroupBy", reflect.TypeOf((*MockCLIClient)(nil).CountGroupBy), ctx, index, query, aggName, agg)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountGroupBy", reflect.TypeOf((*MockCLIClient)(nil).CountGroupBy), ctx, index, arg2, aggName, agg)
 }
 
 // CreateIndex mocks base method.
@@ -351,10 +351,10 @@ func (mr *MockCLIClientMockRecorder) DeleteIndex(ctx, indexName any) *gomock.Cal
 }
 
 // Get mocks base method.
-func (m *MockCLIClient) Get(ctx context.Context, index, docID string) (*elastic.GetResult, error) {
+func (m *MockCLIClient) Get(ctx context.Context, index, docID string) (*GetResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Get", ctx, index, docID)
-	ret0, _ := ret[0].(*elastic.GetResult)
+	ret0, _ := ret[0].(*GetResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -470,10 +470,10 @@ func (mr *MockCLIClientMockRecorder) RunBulkProcessor(ctx, p any) *gomock.Call {
 }
 
 // Search mocks base method.
-func (m *MockCLIClient) Search(ctx context.Context, p *SearchParameters) (*elastic.SearchResult, error) {
+func (m *MockCLIClient) Search(ctx context.Context, p *SearchParameters) (*SearchResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Search", ctx, p)
-	ret0, _ := ret[0].(*elastic.SearchResult)
+	ret0, _ := ret[0].(*SearchResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -524,10 +524,10 @@ func (m *MockIntegrationTestsClient) EXPECT() *MockIntegrationTestsClientMockRec
 }
 
 // CatIndices mocks base method.
-func (m *MockIntegrationTestsClient) CatIndices(ctx context.Context, target string) (elastic.CatIndicesResponse, error) {
+func (m *MockIntegrationTestsClient) CatIndices(ctx context.Context, target string) (CatIndicesResponse, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CatIndices", ctx, target)
-	ret0, _ := ret[0].(elastic.CatIndicesResponse)
+	ret0, _ := ret[0].(CatIndicesResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -539,33 +539,33 @@ func (mr *MockIntegrationTestsClientMockRecorder) CatIndices(ctx, target any) *g
 }
 
 // Count mocks base method.
-func (m *MockIntegrationTestsClient) Count(ctx context.Context, index string, query elastic.Query) (int64, error) {
+func (m *MockIntegrationTestsClient) Count(ctx context.Context, index string, arg2 query.Query) (int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Count", ctx, index, query)
+	ret := m.ctrl.Call(m, "Count", ctx, index, arg2)
 	ret0, _ := ret[0].(int64)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Count indicates an expected call of Count.
-func (mr *MockIntegrationTestsClientMockRecorder) Count(ctx, index, query any) *gomock.Call {
+func (mr *MockIntegrationTestsClientMockRecorder) Count(ctx, index, arg2 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Count", reflect.TypeOf((*MockIntegrationTestsClient)(nil).Count), ctx, index, query)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Count", reflect.TypeOf((*MockIntegrationTestsClient)(nil).Count), ctx, index, arg2)
 }
 
 // CountGroupBy mocks base method.
-func (m *MockIntegrationTestsClient) CountGroupBy(ctx context.Context, index string, query elastic.Query, aggName string, agg elastic.Aggregation) (*elastic.SearchResult, error) {
+func (m *MockIntegrationTestsClient) CountGroupBy(ctx context.Context, index string, arg2 query.Query, aggName string, agg query.Aggregation) (*SearchResult, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CountGroupBy", ctx, index, query, aggName, agg)
-	ret0, _ := ret[0].(*elastic.SearchResult)
+	ret := m.ctrl.Call(m, "CountGroupBy", ctx, index, arg2, aggName, agg)
+	ret0, _ := ret[0].(*SearchResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CountGroupBy indicates an expected call of CountGroupBy.
-func (mr *MockIntegrationTestsClientMockRecorder) CountGroupBy(ctx, index, query, aggName, agg any) *gomock.Call {
+func (mr *MockIntegrationTestsClientMockRecorder) CountGroupBy(ctx, index, arg2, aggName, agg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountGroupBy", reflect.TypeOf((*MockIntegrationTestsClient)(nil).CountGroupBy), ctx, index, query, aggName, agg)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountGroupBy", reflect.TypeOf((*MockIntegrationTestsClient)(nil).CountGroupBy), ctx, index, arg2, aggName, agg)
 }
 
 // CreateIndex mocks base method.
@@ -599,10 +599,10 @@ func (mr *MockIntegrationTestsClientMockRecorder) DeleteIndex(ctx, indexName any
 }
 
 // Get mocks base method.
-func (m *MockIntegrationTestsClient) Get(ctx context.Context, index, docID string) (*elastic.GetResult, error) {
+func (m *MockIntegrationTestsClient) Get(ctx context.Context, index, docID string) (*GetResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Get", ctx, index, docID)
-	ret0, _ := ret[0].(*elastic.GetResult)
+	ret0, _ := ret[0].(*GetResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -644,10 +644,10 @@ func (mr *MockIntegrationTestsClientMockRecorder) IndexExists(ctx, indexName any
 }
 
 // IndexGetSettings mocks base method.
-func (m *MockIntegrationTestsClient) IndexGetSettings(ctx context.Context, indexName string) (map[string]*elastic.IndicesGetSettingsResponse, error) {
+func (m *MockIntegrationTestsClient) IndexGetSettings(ctx context.Context, indexName string) (map[string]*IndicesGetSettingsResponse, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "IndexGetSettings", ctx, indexName)
-	ret0, _ := ret[0].(map[string]*elastic.IndicesGetSettingsResponse)
+	ret0, _ := ret[0].(map[string]*IndicesGetSettingsResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -733,10 +733,10 @@ func (mr *MockIntegrationTestsClientMockRecorder) RunBulkProcessor(ctx, p any) *
 }
 
 // Search mocks base method.
-func (m *MockIntegrationTestsClient) Search(ctx context.Context, p *SearchParameters) (*elastic.SearchResult, error) {
+func (m *MockIntegrationTestsClient) Search(ctx context.Context, p *SearchParameters) (*SearchResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Search", ctx, p)
-	ret0, _ := ret[0].(*elastic.SearchResult)
+	ret0, _ := ret[0].(*SearchResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

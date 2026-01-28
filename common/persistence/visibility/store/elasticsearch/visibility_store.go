@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/olivere/elastic/v7"
 	"github.com/temporalio/sqlparser"
 	commonpb "go.temporal.io/api/common/v1"
 	enumspb "go.temporal.io/api/enums/v1"
@@ -26,7 +25,8 @@ import (
 	"go.temporal.io/server/common/persistence/visibility/manager"
 	"go.temporal.io/server/common/persistence/visibility/store"
 	"go.temporal.io/server/common/persistence/visibility/store/elasticsearch/client"
-	"go.temporal.io/server/common/persistence/visibility/store/query"
+	"go.temporal.io/server/common/persistence/visibility/store/elasticsearch/client/query"
+	storequery "go.temporal.io/server/common/persistence/visibility/store/query"
 	"go.temporal.io/server/common/searchattribute"
 	"go.temporal.io/server/common/searchattribute/sadefs"
 	"go.temporal.io/server/common/util"
@@ -59,8 +59,8 @@ type (
 	}
 
 	esQueryParams struct {
-		Query   elastic.Query
-		Sorter  []elastic.Sorter
+		Query   query.Query
+		Sorter  []query.Sorter
 		GroupBy []string
 	}
 
@@ -98,10 +98,10 @@ var (
 		{sadefs.StartTime, true, true},
 	}
 
-	defaultSorter = func() []elastic.Sorter {
-		ret := make([]elastic.Sorter, 0, len(defaultSorterFields))
+	defaultSorter = func() []query.Sorter {
+		ret := make([]query.Sorter, 0, len(defaultSorterFields))
 		for _, item := range defaultSorterFields {
-			fs := elastic.NewFieldSort(item.name)
+			fs := query.NewFieldSort(item.name)
 			if item.desc {
 				fs.Desc()
 			}
@@ -115,8 +115,8 @@ var (
 		return ret
 	}()
 
-	docSorter = []elastic.Sorter{
-		elastic.SortByDoc{},
+	docSorter = []query.Sorter{
+		query.NewDocSort(),
 	}
 )
 
@@ -486,26 +486,9 @@ func (s *VisibilityStore) countGroupByExecutions(
 	groupByFields := queryParams.GroupBy
 
 	// Elasticsearch aggregation is nested. so need to loop backwards to build it.
-	// Example: when grouping by (field1, field2), the object looks like
-	// {
-	//   "aggs": {
-	//     "field1": {
-	//       "terms": {
-	//         "field": "field1"
-	//       },
-	//       "aggs": {
-	//         "field2": {
-	//           "terms": {
-	//             "field": "field2"
-	//           }
-	//         }
-	//       }
-	//     }
-	//   }
-	// }
-	termsAgg := elastic.NewTermsAggregation().Field(groupByFields[len(groupByFields)-1])
+	termsAgg := query.NewTermsAggregation().Field(groupByFields[len(groupByFields)-1])
 	for i := len(groupByFields) - 2; i >= 0; i-- {
-		termsAgg = elastic.NewTermsAggregation().
+		termsAgg = query.NewTermsAggregation().
 			Field(groupByFields[i]).
 			SubAggregation(groupByFields[i+1], termsAgg)
 	}
@@ -545,7 +528,7 @@ func (s *VisibilityStore) GetWorkflowExecution(
 		)
 	}
 
-	workflowExecutionInfo, err := s.ParseESDoc(result.Id, result.Source, typeMap, request.Namespace, nil)
+	workflowExecutionInfo, err := s.ParseESDoc(result.ID, result.Source, typeMap, request.Namespace, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -557,7 +540,7 @@ func (s *VisibilityStore) GetWorkflowExecution(
 
 func (s *VisibilityStore) BuildSearchParametersV2(
 	request *manager.ListWorkflowExecutionsRequestV2,
-	getFieldSorter func([]elastic.Sorter) ([]elastic.Sorter, error),
+	getFieldSorter func([]query.Sorter) ([]query.Sorter, error),
 ) (*client.SearchParameters, error) {
 	return s.buildSearchParametersInternal(&searchParametersInternal{
 		NamespaceName: request.Namespace,
@@ -572,7 +555,7 @@ func (s *VisibilityStore) BuildSearchParametersV2(
 
 func (s *VisibilityStore) BuildChasmSearchParameters(
 	request *manager.ListChasmExecutionsRequest,
-	getFieldSorter func([]elastic.Sorter) ([]elastic.Sorter, error),
+	getFieldSorter func([]query.Sorter) ([]query.Sorter, error),
 	chasmMapper *chasm.VisibilitySearchAttributesMapper,
 ) (*client.SearchParameters, error) {
 	return s.buildSearchParametersInternal(&searchParametersInternal{
@@ -621,16 +604,11 @@ func (s *VisibilityStore) buildSearchParametersInternal(
 	}
 
 	// TODO(rodrigozhou): investigate possible solutions to slow ORDER BY.
-	// ORDER BY clause can be slow if there is a large number of documents and
-	// using a field that was not indexed by ES. Since slow queries can block
-	// writes for unreasonably long, this option forbids the usage of ORDER BY
-	// clause to prevent slow down issues.
 	if s.disableOrderByClause(params.NamespaceName.String()) && len(queryParams.Sorter) > 0 {
 		return nil, serviceerror.NewInvalidArgument("ORDER BY clause is not supported")
 	}
 
 	if len(queryParams.Sorter) > 0 {
-		// If params.Sorter is not empty, then it's using custom order by.
 		s.metricsHandler.WithTags(metrics.NamespaceTag(params.NamespaceName.String())).
 			Counter(metrics.ElasticsearchCustomOrderByClauseCount.Name()).Record(1)
 	}
@@ -675,11 +653,11 @@ func (s *VisibilityStore) processPageToken(
 		return nil
 	}
 
-	boolQuery, ok := params.Query.(*elastic.BoolQuery)
+	boolQ, ok := params.Query.(*boolQuery)
 	if !ok {
 		return serviceerror.NewInternalf(
 			"unexpected query type: expected %T, got %T",
-			&elastic.BoolQuery{},
+			&boolQuery{},
 			params.Query,
 		)
 	}
@@ -697,8 +675,8 @@ func (s *VisibilityStore) processPageToken(
 		return err
 	}
 
-	boolQuery.Should(shouldQueries...)
-	boolQuery.MinimumNumberShouldMatch(1)
+	boolQ.Should(shouldQueries...)
+	boolQ.MinimumNumberShouldMatch(1)
 	return nil
 }
 
@@ -710,9 +688,7 @@ func (s *VisibilityStore) convertQuery(
 	archetypeID chasm.ArchetypeID,
 ) (res *esQueryParams, err error) {
 	defer func() {
-		// Convert ConverterError to InvalidArgument and pass through all other errors (which should be
-		// only mapper errors).
-		var converterErr *query.ConverterError
+		var converterErr *storequery.ConverterError
 		if errors.As(err, &converterErr) {
 			err = converterErr.ToInvalidArgument()
 		}
@@ -728,72 +704,70 @@ func (s *VisibilityStore) convertQuery(
 		return nil, err
 	}
 
-	c := query.NewQueryConverter(&queryConverter{}, namespaceName, saTypeMap, saMapper).
+	c := storequery.NewQueryConverter(&queryConverter{}, namespaceName, saTypeMap, saMapper).
 		WithChasmMapper(chasmMapper).
 		WithArchetypeID(archetypeID)
 
-	queryParams, err := c.Convert(queryString)
+	queryParamsGeneric, err := c.Convert(queryString)
 	if err != nil {
 		return nil, err
 	}
 
-	queryParams.QueryExpr = elastic.NewBoolQuery().Filter(
-		elastic.NewTermQuery(sadefs.NamespaceID, namespaceID.String()),
-		queryParams.QueryExpr,
+	queryParamsGeneric.QueryExpr = newBoolQuery().Filter(
+		query.NewTermQuery(sadefs.NamespaceID, namespaceID.String()),
+		queryParamsGeneric.QueryExpr,
 	)
 
-	orderBy := make([]elastic.Sorter, 0, len(queryParams.OrderBy))
-	for _, orderByExpr := range queryParams.OrderBy {
-		// query converter is supposed to parse the expression and convert to SAColumn
-		colName, ok := orderByExpr.Expr.(*query.SAColumn)
+	orderBy := make([]query.Sorter, 0, len(queryParamsGeneric.OrderBy))
+	for _, orderByExpr := range queryParamsGeneric.OrderBy {
+		colName, ok := orderByExpr.Expr.(*storequery.SAColumn)
 		if !ok {
-			return nil, query.NewConverterError(
+			return nil, storequery.NewConverterError(
 				"%s: unexpected field in 'ORDER BY' clause: %s",
-				query.NotSupportedErrMessage,
+				storequery.NotSupportedErrMessage,
 				sqlparser.String(orderByExpr),
 			)
 		}
-		fieldSort := elastic.NewFieldSort(colName.FieldName).Missing("_last")
+		fieldSorter := query.NewFieldSort(colName.FieldName).Missing("_last")
 		if orderByExpr.Direction == sqlparser.DescScr {
-			fieldSort = fieldSort.Desc()
+			fieldSorter = fieldSorter.Desc()
 		}
-		orderBy = append(orderBy, fieldSort)
+		orderBy = append(orderBy, fieldSorter)
 	}
 
-	groupBy := make([]string, 0, len(queryParams.GroupBy))
-	for _, field := range queryParams.GroupBy {
+	groupBy := make([]string, 0, len(queryParamsGeneric.GroupBy))
+	for _, field := range queryParamsGeneric.GroupBy {
 		groupBy = append(groupBy, field.FieldName)
 	}
 
 	return &esQueryParams{
-		Query:   queryParams.QueryExpr,
+		Query:   queryParamsGeneric.QueryExpr,
 		Sorter:  orderBy,
 		GroupBy: groupBy,
 	}, nil
 }
 
 func (s *VisibilityStore) convertQueryLegacy(
-	namespace namespace.Name,
+	namespaceName namespace.Name,
 	namespaceID namespace.ID,
 	requestQueryStr string,
 	chasmMapper *chasm.VisibilitySearchAttributesMapper,
 	archetypeID chasm.ArchetypeID,
-) (*query.QueryParamsLegacy, error) {
+) (*esQueryParams, error) {
 	saTypeMap, err := s.searchAttributesProvider.GetSearchAttributes(s.index, false)
 	if err != nil {
 		return nil, serviceerror.NewUnavailablef("unable to read search attribute types: %v", err)
 	}
-	nameInterceptor := NewNameInterceptor(namespace, saTypeMap, s.searchAttributesMapperProvider, chasmMapper, archetypeID)
-	queryConverter := NewQueryConverterLegacy(
+	nameInterceptor := NewNameInterceptor(namespaceName, saTypeMap, s.searchAttributesMapperProvider, chasmMapper, archetypeID)
+	qc := NewQueryConverterLegacy(
 		nameInterceptor,
-		NewValuesInterceptor(namespace, saTypeMap, chasmMapper, s.metricsHandler, s.logger),
+		NewValuesInterceptor(namespaceName, saTypeMap, chasmMapper, s.metricsHandler, s.logger),
 		saTypeMap,
 		chasmMapper,
 	)
-	queryParams, err := queryConverter.ConvertWhereOrderBy(requestQueryStr)
+	queryParamsLegacy, err := qc.ConvertWhereOrderBy(requestQueryStr)
 	if err != nil {
-		// Convert ConverterError to InvalidArgument and pass through all other errors (which should be only mapper errors).
-		var converterErr *query.ConverterError
+		var converterErr *storequery.ConverterError
 		if errors.As(err, &converterErr) {
 			return nil, converterErr.ToInvalidArgument()
 		}
@@ -801,41 +775,44 @@ func (s *VisibilityStore) convertQueryLegacy(
 	}
 
 	// Create a new bool query because a request query might have only "should" (="or") queries.
-	namespaceFilterQuery := elastic.NewBoolQuery().Filter(elastic.NewTermQuery(sadefs.NamespaceID, namespaceID.String()))
+	namespaceFilterQuery := newBoolQuery().Filter(query.NewTermQuery(sadefs.NamespaceID, namespaceID.String()))
 
 	// If the query did not explicitly filter on TemporalNamespaceDivision somehow, then add a
 	// "must not exist" (i.e. "is null") query for it.
 	if !nameInterceptor.seenNamespaceDivision {
 		if archetypeID != chasm.UnspecifiedArchetypeID {
-			namespaceFilterQuery.Filter(elastic.NewTermQuery(sadefs.TemporalNamespaceDivision, strconv.Itoa(int(archetypeID))))
+			namespaceFilterQuery.Filter(query.NewTermQuery(sadefs.TemporalNamespaceDivision, strconv.Itoa(int(archetypeID))))
 		} else {
-			namespaceFilterQuery.MustNot(elastic.NewExistsQuery(sadefs.TemporalNamespaceDivision))
+			namespaceFilterQuery.MustNot(query.NewExistsQuery(sadefs.TemporalNamespaceDivision))
 		}
 	}
 
-	if queryParams.Query != nil {
-		namespaceFilterQuery.Filter(queryParams.Query)
+	if queryParamsLegacy.Query != nil {
+		namespaceFilterQuery.Filter(queryParamsLegacy.Query)
 	}
 
-	queryParams.Query = namespaceFilterQuery
-	return queryParams, nil
+	return &esQueryParams{
+		Query:   namespaceFilterQuery,
+		Sorter:  queryParamsLegacy.Sorter,
+		GroupBy: queryParamsLegacy.GroupBy,
+	}, nil
 }
 
-func (s *VisibilityStore) GetListFieldSorter(fieldSorts []elastic.Sorter) ([]elastic.Sorter, error) {
+func (s *VisibilityStore) GetListFieldSorter(fieldSorts []query.Sorter) ([]query.Sorter, error) {
 	if len(fieldSorts) == 0 {
 		return defaultSorter, nil
 	}
-	res := make([]elastic.Sorter, len(fieldSorts)+1)
+	res := make([]query.Sorter, len(fieldSorts)+1)
 	copy(res, fieldSorts)
 	// RunID is explicit tiebreaker.
-	res[len(res)-1] = elastic.NewFieldSort(sadefs.RunID).Desc()
+	res[len(res)-1] = query.NewFieldSort(sadefs.RunID).Desc()
 
 	return res, nil
 }
 
 func (s *VisibilityStore) GetListWorkflowExecutionsResponse(
-	searchResult *elastic.SearchResult,
-	namespace namespace.Name,
+	searchResult *client.SearchResult,
+	namespaceName namespace.Name,
 	pageSize int,
 	chasmMapper *chasm.VisibilitySearchAttributesMapper,
 ) (*store.InternalListExecutionsResponse, error) {
@@ -853,7 +830,7 @@ func (s *VisibilityStore) GetListWorkflowExecutionsResponse(
 	}
 	var lastHitSort []interface{}
 	for _, hit := range searchResult.Hits.Hits {
-		workflowExecutionInfo, err := s.ParseESDoc(hit.Id, hit.Source, typeMap, namespace, chasmMapper)
+		workflowExecutionInfo, err := s.ParseESDoc(hit.ID, hit.Source, typeMap, namespaceName, chasmMapper)
 		if err != nil {
 			return nil, err
 		}
@@ -952,8 +929,6 @@ func (s *VisibilityStore) GenerateESDoc(
 	}
 	for saName, saValue := range searchAttributes {
 		if saValue == nil {
-			// If the search attribute value is `nil`, it means that it shouldn't be added to the document.
-			// Empty slices are converted to `nil` while decoding.
 			continue
 		}
 		doc[saName] = saValue
@@ -995,7 +970,6 @@ func (s *VisibilityStore) ParseESDoc(
 
 	var sourceMap map[string]interface{}
 	d := json.NewDecoder(bytes.NewReader(docSource))
-	// Very important line. See finishParseJSONValue bellow.
 	d.UseNumber()
 	if err := d.Decode(&sourceMap); err != nil {
 		metrics.ElasticsearchDocumentParseFailuresCount.With(s.metricsHandler).Record(1)
@@ -1015,7 +989,6 @@ func (s *VisibilityStore) ParseESDoc(
 		switch fieldName {
 		case sadefs.NamespaceID,
 			sadefs.VisibilityTaskKey:
-			// Ignore these fields.
 			continue
 		case sadefs.Memo:
 			var memoStr string
@@ -1036,7 +1009,6 @@ func (s *VisibilityStore) ParseESDoc(
 
 		fieldType, err := combinedTypeMap.GetType(fieldName)
 		if err != nil {
-			// Silently ignore ErrInvalidName because it indicates an unknown field in an Elasticsearch document.
 			if errors.Is(err, searchattribute.ErrInvalidName) {
 				continue
 			}
@@ -1124,7 +1096,7 @@ func (s *VisibilityStore) ParseESDoc(
 //
 //nolint:revive // cognitive complexity 27 (> max enabled 25)
 func (s *VisibilityStore) parseCountGroupByResponse(
-	searchResult *elastic.SearchResult,
+	searchResult *client.SearchResult,
 	groupByFields []string,
 	chasmMapper *chasm.VisibilitySearchAttributesMapper,
 ) (*store.InternalCountExecutionsResponse, error) {
@@ -1209,16 +1181,7 @@ func (s *VisibilityStore) parseCountGroupByResponse(
 }
 
 // finishParseJSONValue finishes JSON parsing after json.Decode.
-// json.Decode returns:
-//
-//	bool, for JSON booleans
-//	json.Number, for JSON numbers (because of d.UseNumber())
-//	string, for JSON strings
-//	[]interface{}, for JSON arrays
-//	map[string]interface{}, for JSON objects (should never be a case)
-//	nil for JSON null
 func finishParseJSONValue(val interface{}, t enumspb.IndexedValueType) (interface{}, error) {
-	// Custom search attributes support array of a particular type.
 	if arrayValue, isArray := val.([]interface{}); isArray {
 		retArray := make([]interface{}, len(arrayValue))
 		var lastErr error
@@ -1263,12 +1226,11 @@ func finishParseJSONValue(val interface{}, t enumspb.IndexedValueType) (interfac
 
 func ConvertElasticsearchClientError(message string, err error) error {
 	errMessage := fmt.Sprintf("%s: %s", message, detailedErrorMessage(err))
-	var elasticErr *elastic.Error
+	var esErr *client.ESError
 	switch {
-	case errors.As(err, &elasticErr):
-		switch elasticErr.Status {
+	case errors.As(err, &esErr):
+		switch esErr.Status {
 		case 400: // BadRequest
-			// Returning InvalidArgument error will prevent retry on a caller side.
 			return serviceerror.NewInvalidArgument(errMessage)
 		}
 		return serviceerror.NewUnavailable(errMessage)
@@ -1280,27 +1242,34 @@ func ConvertElasticsearchClientError(message string, err error) error {
 }
 
 func detailedErrorMessage(err error) string {
-	var elasticErr *elastic.Error
-	if !errors.As(err, &elasticErr) ||
-		elasticErr.Details == nil ||
-		len(elasticErr.Details.RootCause) == 0 ||
-		(len(elasticErr.Details.RootCause) == 1 && elasticErr.Details.RootCause[0].Reason == elasticErr.Details.Reason) {
+	var esErr *client.ESError
+	if !errors.As(err, &esErr) ||
+		esErr.Details == nil ||
+		len(esErr.Details.RootCause) == 0 {
+		return err.Error()
+	}
+
+	// If there's only one root cause and it matches the main error, skip including root causes
+	rootCauses := esErr.Details.RootCause
+	if len(rootCauses) == 1 &&
+		rootCauses[0].Reason == esErr.Details.Reason &&
+		rootCauses[0].Type == esErr.Details.Type {
 		return err.Error()
 	}
 
 	var sb strings.Builder
-	sb.WriteString(elasticErr.Error())
+	sb.WriteString(esErr.Error())
 	sb.WriteString(", root causes:")
-	for i, rootCause := range elasticErr.Details.RootCause {
+	for i, rootCause := range rootCauses {
 		sb.WriteString(fmt.Sprintf(" %s [type=%s]", rootCause.Reason, rootCause.Type))
-		if i != len(elasticErr.Details.RootCause)-1 {
+		if i != len(rootCauses)-1 {
 			sb.WriteRune(',')
 		}
 	}
 	return sb.String()
 }
 
-func isDefaultSorter(sorter []elastic.Sorter) bool {
+func isDefaultSorter(sorter []query.Sorter) bool {
 	if len(sorter) != len(defaultSorter) {
 		return false
 	}
@@ -1314,18 +1283,12 @@ func isDefaultSorter(sorter []elastic.Sorter) bool {
 
 // buildPaginationQuery builds the Elasticsearch conditions for the next page based on searchAfter.
 //
-// For example, if sorterFields = [A, B, C] and searchAfter = [lastA, lastB, lastC],
-// it will build the following conditions (assuming all values are non-null and orders are desc):
-// - k = 0: A < lastA
-// - k = 1: A = lastA AND B < lastB
-// - k = 2: A = lastA AND B = lastB AND C < lastC
-//
 //nolint:revive // cyclomatic complexity
 func buildPaginationQuery(
 	sorterFields []fieldSort,
 	searchAfter []any,
 	saTypeMap searchattribute.NameTypeMap,
-) ([]elastic.Query, error) {
+) ([]query.Query, error) {
 	n := len(sorterFields)
 	if len(sorterFields) != len(searchAfter) {
 		return nil, serviceerror.NewInvalidArgumentf(
@@ -1355,25 +1318,25 @@ func buildPaginationQuery(
 		)
 	}
 
-	shouldQueries := make([]elastic.Query, 0, len(sorterFields))
+	shouldQueries := make([]query.Query, 0, len(sorterFields))
 	for k := 0; k < len(sorterFields); k++ {
-		bq := elastic.NewBoolQuery()
+		bq := newBoolQuery()
 		for i := 0; i <= k; i++ {
 			field := sorterFields[i]
 			value := parsedSearchAfter[i]
 			if i == k {
 				if value == nil {
-					bq.Filter(elastic.NewExistsQuery(field.name))
+					bq.Filter(query.NewExistsQuery(field.name))
 				} else if field.desc {
-					bq.Filter(elastic.NewRangeQuery(field.name).Lt(value))
+					bq.Filter(query.NewRangeQuery(field.name).Lt(value))
 				} else {
-					bq.Filter(elastic.NewRangeQuery(field.name).Gt(value))
+					bq.Filter(query.NewRangeQuery(field.name).Gt(value))
 				}
 			} else {
 				if value == nil {
-					bq.MustNot(elastic.NewExistsQuery(field.name))
+					bq.MustNot(query.NewExistsQuery(field.name))
 				} else {
-					bq.Filter(elastic.NewTermQuery(field.name, value))
+					bq.Filter(query.NewTermQuery(field.name, value))
 				}
 			}
 		}
@@ -1383,14 +1346,6 @@ func buildPaginationQuery(
 }
 
 // parsePageTokenValue parses the page token values to be used in the search query.
-// The page token comes from the `sort` field from the previous response from Elasticsearch.
-// Depending on the type of the field, the null value is represented differently:
-//   - integer, bool, and datetime: MaxInt64 (desc) or MinInt64 (asc)
-//   - double: "Infinity" (desc) or "-Infinity" (asc)
-//   - keyword: nil
-//
-// Furthermore, for bool and datetime, they need to be converted to boolean or the RFC3339Nano
-// formats respectively.
 //
 //nolint:revive // cyclomatic complexity
 func parsePageTokenValue(
@@ -1432,14 +1387,12 @@ func parsePageTokenValue(
 			}
 			return num, nil
 		case string:
-			// it can be the string representation of infinity
 			if _, err := strconv.ParseFloat(v, 64); err != nil {
 				return nil, serviceerror.NewInvalidArgumentf(
 					"invalid page token: expected float type, got %q", jsonValue)
 			}
 			return nil, nil
 		default:
-			// it should never reach here
 			return nil, serviceerror.NewInvalidArgumentf(
 				"invalid page token: expected float type, got %#v", jsonValue)
 		}

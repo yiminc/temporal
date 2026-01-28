@@ -4,27 +4,27 @@ import (
 	"strings"
 	"time"
 
-	"github.com/olivere/elastic/v7"
 	"github.com/temporalio/sqlparser"
-	"go.temporal.io/server/common/persistence/visibility/store/query"
+	"go.temporal.io/server/common/persistence/visibility/store/elasticsearch/client/query"
+	storequery "go.temporal.io/server/common/persistence/visibility/store/query"
 )
 
 type queryConverter struct{}
 
-var _ query.StoreQueryConverter[elastic.Query] = (*queryConverter)(nil)
+var _ storequery.StoreQueryConverter[query.Query] = (*queryConverter)(nil)
 
 func (c *queryConverter) GetDatetimeFormat() string {
 	return time.RFC3339Nano
 }
 
-func (c *queryConverter) BuildParenExpr(expr elastic.Query) (elastic.Query, error) {
+func (c *queryConverter) BuildParenExpr(expr query.Query) (query.Query, error) {
 	if expr == nil {
 		return nil, nil
 	}
 	return expr, nil
 }
 
-func (c *queryConverter) BuildNotExpr(expr elastic.Query) (elastic.Query, error) {
+func (c *queryConverter) BuildNotExpr(expr query.Query) (query.Query, error) {
 	if expr == nil {
 		return nil, nil
 	}
@@ -37,9 +37,9 @@ func (c *queryConverter) BuildNotExpr(expr elastic.Query) (elastic.Query, error)
 	return newBoolQuery().MustNot(expr), nil
 }
 
-func (c *queryConverter) BuildAndExpr(exprs ...elastic.Query) (elastic.Query, error) {
+func (c *queryConverter) BuildAndExpr(exprs ...query.Query) (query.Query, error) {
 	var reusableBoolQuery *boolQuery
-	validExprs := make([]elastic.Query, 0, len(exprs))
+	validExprs := make([]query.Query, 0, len(exprs))
 	for _, e := range exprs {
 		if e == nil {
 			continue
@@ -65,9 +65,9 @@ func (c *queryConverter) BuildAndExpr(exprs ...elastic.Query) (elastic.Query, er
 	return newBoolQuery().Filter(validExprs...), nil
 }
 
-func (c *queryConverter) BuildOrExpr(exprs ...elastic.Query) (elastic.Query, error) {
+func (c *queryConverter) BuildOrExpr(exprs ...query.Query) (query.Query, error) {
 	var reusableBoolQuery *boolQuery
-	validExprs := make([]elastic.Query, 0, len(exprs))
+	validExprs := make([]query.Query, 0, len(exprs))
 	for _, e := range exprs {
 		if e == nil {
 			continue
@@ -95,29 +95,29 @@ func (c *queryConverter) BuildOrExpr(exprs ...elastic.Query) (elastic.Query, err
 
 func (c *queryConverter) ConvertComparisonExpr(
 	operator string,
-	col *query.SAColumn,
+	col *storequery.SAColumn,
 	value any,
-) (elastic.Query, error) {
-	var res elastic.Query
+) (query.Query, error) {
+	var res query.Query
 	negate := false
 	colName := col.FieldName
 	switch operator {
 	case sqlparser.GreaterEqualStr:
-		res = elastic.NewRangeQuery(colName).Gte(value)
+		res = query.NewRangeQuery(colName).Gte(value)
 	case sqlparser.LessEqualStr:
-		res = elastic.NewRangeQuery(colName).Lte(value)
+		res = query.NewRangeQuery(colName).Lte(value)
 	case sqlparser.GreaterThanStr:
-		res = elastic.NewRangeQuery(colName).Gt(value)
+		res = query.NewRangeQuery(colName).Gt(value)
 	case sqlparser.LessThanStr:
-		res = elastic.NewRangeQuery(colName).Lt(value)
+		res = query.NewRangeQuery(colName).Lt(value)
 	case sqlparser.EqualStr, sqlparser.NotEqualStr:
-		res = elastic.NewTermQuery(colName, value)
+		res = query.NewTermQuery(colName, value)
 		negate = operator == sqlparser.NotEqualStr
 	case sqlparser.InStr, sqlparser.NotInStr:
-		res = elastic.NewTermsQuery(colName, value.([]any)...)
+		res = query.NewTermsQuery(colName, value.([]any)...)
 		negate = operator == sqlparser.NotInStr
 	default:
-		return nil, query.NewOperatorNotSupportedError(col.Alias, col.ValueType, operator)
+		return nil, storequery.NewOperatorNotSupportedError(col.Alias, col.ValueType, operator)
 	}
 
 	if negate {
@@ -128,21 +128,21 @@ func (c *queryConverter) ConvertComparisonExpr(
 
 func (c *queryConverter) ConvertKeywordComparisonExpr(
 	operator string,
-	col *query.SAColumn,
+	col *storequery.SAColumn,
 	value any,
-) (elastic.Query, error) {
+) (query.Query, error) {
 	colName := col.FieldName
 	switch operator {
 	case sqlparser.StartsWithStr, sqlparser.NotStartsWithStr:
 		v, ok := value.(string)
 		if !ok {
-			return nil, query.NewConverterError(
+			return nil, storequery.NewConverterError(
 				"%s: right-hand side of operator '%s' must be a string",
-				query.InvalidExpressionErrMessage,
+				storequery.InvalidExpressionErrMessage,
 				strings.ToUpper(operator),
 			)
 		}
-		var res elastic.Query = elastic.NewPrefixQuery(colName, v)
+		var res query.Query = query.NewPrefixQuery(colName, v)
 		if operator == sqlparser.NotStartsWithStr {
 			res, _ = c.BuildNotExpr(res)
 		}
@@ -154,45 +154,45 @@ func (c *queryConverter) ConvertKeywordComparisonExpr(
 
 func (c *queryConverter) ConvertKeywordListComparisonExpr(
 	operator string,
-	col *query.SAColumn,
+	col *storequery.SAColumn,
 	value any,
-) (elastic.Query, error) {
+) (query.Query, error) {
 	return c.ConvertKeywordComparisonExpr(operator, col, value)
 }
 
 func (c *queryConverter) ConvertTextComparisonExpr(
 	operator string,
-	col *query.SAColumn,
+	col *storequery.SAColumn,
 	value any,
-) (elastic.Query, error) {
+) (query.Query, error) {
 	colName := col.FieldName
 	switch operator {
 	case sqlparser.EqualStr:
-		return elastic.NewMatchQuery(colName, value), nil
+		return query.NewMatchQuery(colName, value), nil
 	case sqlparser.NotEqualStr:
-		return newBoolQuery().MustNot(elastic.NewMatchQuery(colName, value)), nil
+		return newBoolQuery().MustNot(query.NewMatchQuery(colName, value)), nil
 	default:
-		return nil, query.NewOperatorNotSupportedError(col.Alias, col.ValueType, operator)
+		return nil, storequery.NewOperatorNotSupportedError(col.Alias, col.ValueType, operator)
 	}
 }
 
 func (c *queryConverter) ConvertRangeExpr(
 	operator string,
-	col *query.SAColumn,
+	col *storequery.SAColumn,
 	from, to any,
-) (elastic.Query, error) {
+) (query.Query, error) {
 	colName := col.FieldName
 	switch operator {
 	case sqlparser.BetweenStr:
-		return elastic.NewRangeQuery(colName).Gte(from).Lte(to), nil
+		return query.NewRangeQuery(colName).Gte(from).Lte(to), nil
 	case sqlparser.NotBetweenStr:
-		return newBoolQuery().MustNot(elastic.NewRangeQuery(colName).Gte(from).Lte(to)), nil
+		return newBoolQuery().MustNot(query.NewRangeQuery(colName).Gte(from).Lte(to)), nil
 	default:
 		// This should be impossible since the query parser only calls this function with one of those
 		// operators strings.
-		return nil, query.NewConverterError(
+		return nil, storequery.NewConverterError(
 			"%s: unexpected operator '%s' for range condition",
-			query.MalformedSqlQueryErrMessage,
+			storequery.MalformedSqlQueryErrMessage,
 			strings.ToUpper(operator),
 		)
 	}
@@ -200,20 +200,20 @@ func (c *queryConverter) ConvertRangeExpr(
 
 func (c *queryConverter) ConvertIsExpr(
 	operator string,
-	col *query.SAColumn,
-) (elastic.Query, error) {
+	col *storequery.SAColumn,
+) (query.Query, error) {
 	colName := col.FieldName
 	switch operator {
 	case sqlparser.IsNullStr:
-		return newBoolQuery().MustNot(elastic.NewExistsQuery(colName)), nil
+		return newBoolQuery().MustNot(query.NewExistsQuery(colName)), nil
 	case sqlparser.IsNotNullStr:
-		return elastic.NewExistsQuery(colName), nil
+		return query.NewExistsQuery(colName), nil
 	default:
 		// This should be impossible since the query parser only calls this function with one of those
 		// operators strings.
-		return nil, query.NewConverterError(
+		return nil, storequery.NewConverterError(
 			"%s: 'IS' operator can only be used as 'IS NULL' or 'IS NOT NULL'",
-			query.InvalidExpressionErrMessage,
+			storequery.InvalidExpressionErrMessage,
 		)
 	}
 }

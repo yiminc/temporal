@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/olivere/elastic/v7"
+	esquery "go.temporal.io/server/common/persistence/visibility/store/elasticsearch/client/query"
 	"github.com/stretchr/testify/require"
 	"github.com/temporalio/sqlparser"
 	enumspb "go.temporal.io/api/enums/v1"
@@ -20,8 +20,8 @@ func TestQueryConverter_GetDatetimeFormat(t *testing.T) {
 func TestQueryConverter_BuildParenExpr(t *testing.T) {
 	testCases := []struct {
 		name string
-		in   elastic.Query
-		out  elastic.Query
+		in   esquery.Query
+		out  esquery.Query
 	}{
 		{
 			name: "empty",
@@ -30,13 +30,13 @@ func TestQueryConverter_BuildParenExpr(t *testing.T) {
 		},
 		{
 			name: "term query",
-			in:   elastic.NewTermQuery("field", "foo"),
-			out:  elastic.NewTermQuery("field", "foo"),
+			in:   esquery.NewTermQuery("field", "foo"),
+			out:  esquery.NewTermQuery("field", "foo"),
 		},
 		{
 			name: "bool query",
-			in:   newBoolQuery().Filter(elastic.NewTermQuery("field", "foo")),
-			out:  newBoolQuery().Filter(elastic.NewTermQuery("field", "foo")),
+			in:   newBoolQuery().Filter(esquery.NewTermQuery("field", "foo")),
+			out:  newBoolQuery().Filter(esquery.NewTermQuery("field", "foo")),
 		},
 	}
 
@@ -54,8 +54,8 @@ func TestQueryConverter_BuildParenExpr(t *testing.T) {
 func TestQueryConverter_BuildNotExpr(t *testing.T) {
 	testCases := []struct {
 		name string
-		in   elastic.Query
-		out  elastic.Query
+		in   esquery.Query
+		out  esquery.Query
 	}{
 		{
 			name: "empty",
@@ -64,23 +64,23 @@ func TestQueryConverter_BuildNotExpr(t *testing.T) {
 		},
 		{
 			name: "term query",
-			in:   elastic.NewTermQuery("field", "foo"),
-			out:  newBoolQuery().MustNot(elastic.NewTermQuery("field", "foo")),
+			in:   esquery.NewTermQuery("field", "foo"),
+			out:  newBoolQuery().MustNot(esquery.NewTermQuery("field", "foo")),
 		},
 		{
 			name: "bool query",
-			in:   newBoolQuery().Filter(elastic.NewTermQuery("field", "foo")),
-			out:  newBoolQuery().MustNot(newBoolQuery().Filter(elastic.NewTermQuery("field", "foo"))),
+			in:   newBoolQuery().Filter(esquery.NewTermQuery("field", "foo")),
+			out:  newBoolQuery().MustNot(newBoolQuery().Filter(esquery.NewTermQuery("field", "foo"))),
 		},
 		{
 			name: "not or query",
 			in: newBoolQuery().Should(
-				elastic.NewTermQuery("field1", "foo"),
-				elastic.NewTermQuery("field2", "bar"),
+				esquery.NewTermQuery("field1", "foo"),
+				esquery.NewTermQuery("field2", "bar"),
 			),
 			out: newBoolQuery().MustNot(
-				elastic.NewTermQuery("field1", "foo"),
-				elastic.NewTermQuery("field2", "bar"),
+				esquery.NewTermQuery("field1", "foo"),
+				esquery.NewTermQuery("field2", "bar"),
 			),
 		},
 	}
@@ -99,8 +99,8 @@ func TestQueryConverter_BuildNotExpr(t *testing.T) {
 func TestQueryConverter_BuildAndExpr(t *testing.T) {
 	testCases := []struct {
 		name string
-		in   []elastic.Query
-		out  elastic.Query
+		in   []esquery.Query
+		out  esquery.Query
 	}{
 		{
 			name: "empty",
@@ -109,59 +109,59 @@ func TestQueryConverter_BuildAndExpr(t *testing.T) {
 		},
 		{
 			name: "slice of empty values",
-			in:   []elastic.Query{nil, nil},
+			in:   []esquery.Query{nil, nil},
 			out:  nil,
 		},
 		{
 			name: "one query",
-			in:   []elastic.Query{elastic.NewTermQuery("field", "foo")},
-			out:  elastic.NewTermQuery("field", "foo"),
+			in:   []esquery.Query{esquery.NewTermQuery("field", "foo")},
+			out:  esquery.NewTermQuery("field", "foo"),
 		},
 		{
 			name: "two queries",
-			in: []elastic.Query{
-				elastic.NewTermQuery("field1", "foo"),
-				newBoolQuery().Filter(elastic.NewTermQuery("field2", "bar")),
+			in: []esquery.Query{
+				esquery.NewTermQuery("field1", "foo"),
+				newBoolQuery().Filter(esquery.NewTermQuery("field2", "bar")),
 			},
 			out: newBoolQuery().Filter(
-				elastic.NewTermQuery("field2", "bar"),
-				elastic.NewTermQuery("field1", "foo"),
+				esquery.NewTermQuery("field2", "bar"),
+				esquery.NewTermQuery("field1", "foo"),
 			),
 		},
 		{
 			name: "multiple queries",
-			in: []elastic.Query{
-				elastic.NewTermQuery("field1", "foo"),
+			in: []esquery.Query{
+				esquery.NewTermQuery("field1", "foo"),
 				nil,
-				newBoolQuery().Should(elastic.NewTermQuery("field2", "bar")).MinimumNumberShouldMatch(1),
-				newBoolQuery().MustNot(elastic.NewTermQuery("field3", "zzz")),
+				newBoolQuery().Should(esquery.NewTermQuery("field2", "bar")).MinimumNumberShouldMatch(1),
+				newBoolQuery().MustNot(esquery.NewTermQuery("field3", "zzz")),
 			},
 			out: newBoolQuery().
 				Filter(
-					elastic.NewTermQuery("field1", "foo"),
-					newBoolQuery().Should(elastic.NewTermQuery("field2", "bar")).MinimumNumberShouldMatch(1),
+					esquery.NewTermQuery("field1", "foo"),
+					newBoolQuery().Should(esquery.NewTermQuery("field2", "bar")).MinimumNumberShouldMatch(1),
 				).
-				MustNot(elastic.NewTermQuery("field3", "zzz")),
+				MustNot(esquery.NewTermQuery("field3", "zzz")),
 		},
 		{
 			name: "multiple queries reuse",
-			in: []elastic.Query{
-				elastic.NewTermQuery("field1", "foo"),
+			in: []esquery.Query{
+				esquery.NewTermQuery("field1", "foo"),
 				nil,
-				newBoolQuery().Filter(elastic.NewTermQuery("field2", "bar")),
-				newBoolQuery().MustNot(elastic.NewTermQuery("field3", "zzz")),
+				newBoolQuery().Filter(esquery.NewTermQuery("field2", "bar")),
+				newBoolQuery().MustNot(esquery.NewTermQuery("field3", "zzz")),
 				newBoolQuery().
-					Filter(elastic.NewTermQuery("field4", "aaa")).
-					MustNot(elastic.NewTermQuery("field5", "bbb")),
+					Filter(esquery.NewTermQuery("field4", "aaa")).
+					MustNot(esquery.NewTermQuery("field5", "bbb")),
 			},
 			out: newBoolQuery().
 				Filter(
-					elastic.NewTermQuery("field2", "bar"),
-					elastic.NewTermQuery("field4", "aaa"),
-					elastic.NewTermQuery("field1", "foo"),
+					esquery.NewTermQuery("field2", "bar"),
+					esquery.NewTermQuery("field4", "aaa"),
+					esquery.NewTermQuery("field1", "foo"),
 				).MustNot(
-				elastic.NewTermQuery("field3", "zzz"),
-				elastic.NewTermQuery("field5", "bbb"),
+				esquery.NewTermQuery("field3", "zzz"),
+				esquery.NewTermQuery("field5", "bbb"),
 			),
 		},
 	}
@@ -180,8 +180,8 @@ func TestQueryConverter_BuildAndExpr(t *testing.T) {
 func TestQueryConverter_BuildOrExpr(t *testing.T) {
 	testCases := []struct {
 		name string
-		in   []elastic.Query
-		out  elastic.Query
+		in   []esquery.Query
+		out  esquery.Query
 	}{
 		{
 			name: "empty",
@@ -190,58 +190,58 @@ func TestQueryConverter_BuildOrExpr(t *testing.T) {
 		},
 		{
 			name: "slice of empty values",
-			in:   []elastic.Query{nil, nil},
+			in:   []esquery.Query{nil, nil},
 			out:  nil,
 		},
 		{
 			name: "one query",
-			in:   []elastic.Query{elastic.NewTermQuery("field", "foo")},
-			out:  elastic.NewTermQuery("field", "foo"),
+			in:   []esquery.Query{esquery.NewTermQuery("field", "foo")},
+			out:  esquery.NewTermQuery("field", "foo"),
 		},
 		{
 			name: "two queries",
-			in: []elastic.Query{
-				elastic.NewTermQuery("field1", "foo"),
-				newBoolQuery().Filter(elastic.NewTermQuery("field2", "bar")),
+			in: []esquery.Query{
+				esquery.NewTermQuery("field1", "foo"),
+				newBoolQuery().Filter(esquery.NewTermQuery("field2", "bar")),
 			},
 			out: newBoolQuery().
 				Should(
-					elastic.NewTermQuery("field1", "foo"),
-					newBoolQuery().Filter(elastic.NewTermQuery("field2", "bar")),
+					esquery.NewTermQuery("field1", "foo"),
+					newBoolQuery().Filter(esquery.NewTermQuery("field2", "bar")),
 				).
 				MinimumNumberShouldMatch(1),
 		},
 		{
 			name: "multiple queries",
-			in: []elastic.Query{
-				elastic.NewTermQuery("field1", "foo"),
+			in: []esquery.Query{
+				esquery.NewTermQuery("field1", "foo"),
 				nil,
-				newBoolQuery().Filter(elastic.NewTermQuery("field2", "bar")),
-				newBoolQuery().MustNot(elastic.NewTermQuery("field3", "zzz")),
+				newBoolQuery().Filter(esquery.NewTermQuery("field2", "bar")),
+				newBoolQuery().MustNot(esquery.NewTermQuery("field3", "zzz")),
 			},
 			out: newBoolQuery().
 				Should(
-					elastic.NewTermQuery("field1", "foo"),
-					newBoolQuery().Filter(elastic.NewTermQuery("field2", "bar")),
-					newBoolQuery().MustNot(elastic.NewTermQuery("field3", "zzz")),
+					esquery.NewTermQuery("field1", "foo"),
+					newBoolQuery().Filter(esquery.NewTermQuery("field2", "bar")),
+					newBoolQuery().MustNot(esquery.NewTermQuery("field3", "zzz")),
 				).
 				MinimumNumberShouldMatch(1),
 		},
 		{
 			name: "multiple queries reuse",
-			in: []elastic.Query{
-				elastic.NewTermQuery("field1", "foo"),
+			in: []esquery.Query{
+				esquery.NewTermQuery("field1", "foo"),
 				nil,
-				newBoolQuery().Should(elastic.NewTermQuery("field2", "bar")).MinimumNumberShouldMatch(1),
-				newBoolQuery().MustNot(elastic.NewTermQuery("field3", "zzz")),
-				newBoolQuery().Should(elastic.NewTermQuery("field4", "aaa")).MinimumNumberShouldMatch(1),
+				newBoolQuery().Should(esquery.NewTermQuery("field2", "bar")).MinimumNumberShouldMatch(1),
+				newBoolQuery().MustNot(esquery.NewTermQuery("field3", "zzz")),
+				newBoolQuery().Should(esquery.NewTermQuery("field4", "aaa")).MinimumNumberShouldMatch(1),
 			},
 			out: newBoolQuery().
 				Should(
-					elastic.NewTermQuery("field2", "bar"),
-					elastic.NewTermQuery("field4", "aaa"),
-					elastic.NewTermQuery("field1", "foo"),
-					newBoolQuery().MustNot(elastic.NewTermQuery("field3", "zzz")),
+					esquery.NewTermQuery("field2", "bar"),
+					esquery.NewTermQuery("field4", "aaa"),
+					esquery.NewTermQuery("field1", "foo"),
+					newBoolQuery().MustNot(esquery.NewTermQuery("field3", "zzz")),
 				).
 				MinimumNumberShouldMatch(1),
 		},
@@ -270,7 +270,7 @@ func TestQueryConverter_ConvertComparisonExpr(t *testing.T) {
 		operator string
 		col      *query.SAColumn
 		value    any
-		out      elastic.Query
+		out      esquery.Query
 		err      string
 	}{
 		{
@@ -278,49 +278,49 @@ func TestQueryConverter_ConvertComparisonExpr(t *testing.T) {
 			operator: sqlparser.GreaterEqualStr,
 			col:      intCol,
 			value:    123,
-			out:      elastic.NewRangeQuery(intCol.FieldName).Gte(123),
+			out:      esquery.NewRangeQuery(intCol.FieldName).Gte(123),
 		},
 		{
 			name:     "operator less equal",
 			operator: sqlparser.LessEqualStr,
 			col:      intCol,
 			value:    123,
-			out:      elastic.NewRangeQuery(intCol.FieldName).Lte(123),
+			out:      esquery.NewRangeQuery(intCol.FieldName).Lte(123),
 		},
 		{
 			name:     "operator greater than",
 			operator: sqlparser.GreaterThanStr,
 			col:      intCol,
 			value:    123,
-			out:      elastic.NewRangeQuery(intCol.FieldName).Gt(123),
+			out:      esquery.NewRangeQuery(intCol.FieldName).Gt(123),
 		},
 		{
 			name:     "operator less than",
 			operator: sqlparser.LessThanStr,
 			col:      intCol,
 			value:    123,
-			out:      elastic.NewRangeQuery(intCol.FieldName).Lt(123),
+			out:      esquery.NewRangeQuery(intCol.FieldName).Lt(123),
 		},
 		{
 			name:     "operator equal",
 			operator: sqlparser.EqualStr,
 			col:      intCol,
 			value:    123,
-			out:      elastic.NewTermQuery(intCol.FieldName, 123),
+			out:      esquery.NewTermQuery(intCol.FieldName, 123),
 		},
 		{
 			name:     "operator not equal",
 			operator: sqlparser.NotEqualStr,
 			col:      intCol,
 			value:    123,
-			out:      newBoolQuery().MustNot(elastic.NewTermQuery(intCol.FieldName, 123)),
+			out:      newBoolQuery().MustNot(esquery.NewTermQuery(intCol.FieldName, 123)),
 		},
 		{
 			name:     "operator in",
 			operator: sqlparser.InStr,
 			col:      intCol,
 			value:    []any{123, 456},
-			out:      elastic.NewTermsQuery(intCol.FieldName, 123, 456),
+			out:      esquery.NewTermsQuery(intCol.FieldName, 123, 456),
 		},
 		{
 			name:     "operator not in",
@@ -328,7 +328,7 @@ func TestQueryConverter_ConvertComparisonExpr(t *testing.T) {
 			col:      intCol,
 			value:    []any{123, 456},
 			out: newBoolQuery().MustNot(
-				elastic.NewTermsQuery(intCol.FieldName, 123, 456),
+				esquery.NewTermsQuery(intCol.FieldName, 123, 456),
 			),
 		},
 		{
@@ -373,7 +373,7 @@ func TestQueryConverter_ConvertKeywordComparisonExpr(t *testing.T) {
 		operator string
 		col      *query.SAColumn
 		value    any
-		out      elastic.Query
+		out      esquery.Query
 		err      string
 	}{
 		{
@@ -381,49 +381,49 @@ func TestQueryConverter_ConvertKeywordComparisonExpr(t *testing.T) {
 			operator: sqlparser.GreaterEqualStr,
 			col:      keywordCol,
 			value:    "foo",
-			out:      elastic.NewRangeQuery(keywordCol.FieldName).Gte("foo"),
+			out:      esquery.NewRangeQuery(keywordCol.FieldName).Gte("foo"),
 		},
 		{
 			name:     "operator less equal",
 			operator: sqlparser.LessEqualStr,
 			col:      keywordCol,
 			value:    "foo",
-			out:      elastic.NewRangeQuery(keywordCol.FieldName).Lte("foo"),
+			out:      esquery.NewRangeQuery(keywordCol.FieldName).Lte("foo"),
 		},
 		{
 			name:     "operator greater than",
 			operator: sqlparser.GreaterThanStr,
 			col:      keywordCol,
 			value:    "foo",
-			out:      elastic.NewRangeQuery(keywordCol.FieldName).Gt("foo"),
+			out:      esquery.NewRangeQuery(keywordCol.FieldName).Gt("foo"),
 		},
 		{
 			name:     "operator less than",
 			operator: sqlparser.LessThanStr,
 			col:      keywordCol,
 			value:    "foo",
-			out:      elastic.NewRangeQuery(keywordCol.FieldName).Lt("foo"),
+			out:      esquery.NewRangeQuery(keywordCol.FieldName).Lt("foo"),
 		},
 		{
 			name:     "operator equal",
 			operator: sqlparser.EqualStr,
 			col:      keywordCol,
 			value:    "foo",
-			out:      elastic.NewTermQuery(keywordCol.FieldName, "foo"),
+			out:      esquery.NewTermQuery(keywordCol.FieldName, "foo"),
 		},
 		{
 			name:     "operator not equal",
 			operator: sqlparser.NotEqualStr,
 			col:      keywordCol,
 			value:    "foo",
-			out:      newBoolQuery().MustNot(elastic.NewTermQuery(keywordCol.FieldName, "foo")),
+			out:      newBoolQuery().MustNot(esquery.NewTermQuery(keywordCol.FieldName, "foo")),
 		},
 		{
 			name:     "operator in",
 			operator: sqlparser.InStr,
 			col:      keywordCol,
 			value:    []any{"foo", "bar"},
-			out:      elastic.NewTermsQuery(keywordCol.FieldName, "foo", "bar"),
+			out:      esquery.NewTermsQuery(keywordCol.FieldName, "foo", "bar"),
 		},
 		{
 			name:     "operator not in",
@@ -431,7 +431,7 @@ func TestQueryConverter_ConvertKeywordComparisonExpr(t *testing.T) {
 			col:      keywordCol,
 			value:    []any{"foo", "bar"},
 			out: newBoolQuery().MustNot(
-				elastic.NewTermsQuery(keywordCol.FieldName, "foo", "bar"),
+				esquery.NewTermsQuery(keywordCol.FieldName, "foo", "bar"),
 			),
 		},
 		{
@@ -439,14 +439,14 @@ func TestQueryConverter_ConvertKeywordComparisonExpr(t *testing.T) {
 			operator: sqlparser.StartsWithStr,
 			col:      keywordCol,
 			value:    "foo",
-			out:      elastic.NewPrefixQuery(keywordCol.FieldName, "foo"),
+			out:      esquery.NewPrefixQuery(keywordCol.FieldName, "foo"),
 		},
 		{
 			name:     "operator not starts with",
 			operator: sqlparser.NotStartsWithStr,
 			col:      keywordCol,
 			value:    "foo",
-			out:      newBoolQuery().MustNot(elastic.NewPrefixQuery(keywordCol.FieldName, "foo")),
+			out:      newBoolQuery().MustNot(esquery.NewPrefixQuery(keywordCol.FieldName, "foo")),
 		},
 		{
 			name:     "operator starts with invalid value",
@@ -510,7 +510,7 @@ func TestQueryConverter_ConvertKeywordListComparisonExpr(t *testing.T) {
 		operator string
 		col      *query.SAColumn
 		value    any
-		out      elastic.Query
+		out      esquery.Query
 		err      string
 	}{
 		{
@@ -518,21 +518,21 @@ func TestQueryConverter_ConvertKeywordListComparisonExpr(t *testing.T) {
 			operator: sqlparser.EqualStr,
 			col:      keywordListCol,
 			value:    "foo",
-			out:      elastic.NewTermQuery(keywordListCol.FieldName, "foo"),
+			out:      esquery.NewTermQuery(keywordListCol.FieldName, "foo"),
 		},
 		{
 			name:     "operator not equal",
 			operator: sqlparser.NotEqualStr,
 			col:      keywordListCol,
 			value:    "foo",
-			out:      newBoolQuery().MustNot(elastic.NewTermQuery(keywordListCol.FieldName, "foo")),
+			out:      newBoolQuery().MustNot(esquery.NewTermQuery(keywordListCol.FieldName, "foo")),
 		},
 		{
 			name:     "operator in",
 			operator: sqlparser.InStr,
 			col:      keywordListCol,
 			value:    []any{"foo", "bar"},
-			out:      elastic.NewTermsQuery(keywordListCol.FieldName, "foo", "bar"),
+			out:      esquery.NewTermsQuery(keywordListCol.FieldName, "foo", "bar"),
 		},
 		{
 			name:     "operator not in",
@@ -540,7 +540,7 @@ func TestQueryConverter_ConvertKeywordListComparisonExpr(t *testing.T) {
 			col:      keywordListCol,
 			value:    []any{"foo", "bar"},
 			out: newBoolQuery().MustNot(
-				elastic.NewTermsQuery(keywordListCol.FieldName, "foo", "bar"),
+				esquery.NewTermsQuery(keywordListCol.FieldName, "foo", "bar"),
 			),
 		},
 		{
@@ -585,7 +585,7 @@ func TestQueryConverter_ConvertTextComparisonExpr(t *testing.T) {
 		operator string
 		col      *query.SAColumn
 		value    any
-		out      elastic.Query
+		out      esquery.Query
 		err      string
 	}{
 		{
@@ -593,14 +593,14 @@ func TestQueryConverter_ConvertTextComparisonExpr(t *testing.T) {
 			operator: sqlparser.EqualStr,
 			col:      textCol,
 			value:    "foo",
-			out:      elastic.NewMatchQuery(textCol.FieldName, "foo"),
+			out:      esquery.NewMatchQuery(textCol.FieldName, "foo"),
 		},
 		{
 			name:     "operator not equal",
 			operator: sqlparser.NotEqualStr,
 			col:      textCol,
 			value:    "foo",
-			out:      newBoolQuery().MustNot(elastic.NewMatchQuery(textCol.FieldName, "foo")),
+			out:      newBoolQuery().MustNot(esquery.NewMatchQuery(textCol.FieldName, "foo")),
 		},
 		{
 			name:     "invalid operator",
@@ -645,7 +645,7 @@ func TestQueryConverter_ConvertRangeExpr(t *testing.T) {
 		col      *query.SAColumn
 		from     any
 		to       any
-		out      elastic.Query
+		out      esquery.Query
 		err      string
 	}{
 		{
@@ -654,7 +654,7 @@ func TestQueryConverter_ConvertRangeExpr(t *testing.T) {
 			col:      keywordCol,
 			from:     "123",
 			to:       "456",
-			out:      elastic.NewRangeQuery(keywordCol.FieldName).Gte("123").Lte("456"),
+			out:      esquery.NewRangeQuery(keywordCol.FieldName).Gte("123").Lte("456"),
 		},
 		{
 			name:     "operator not between",
@@ -663,7 +663,7 @@ func TestQueryConverter_ConvertRangeExpr(t *testing.T) {
 			from:     "123",
 			to:       "456",
 			out: newBoolQuery().MustNot(
-				elastic.NewRangeQuery(keywordCol.FieldName).Gte("123").Lte("456"),
+				esquery.NewRangeQuery(keywordCol.FieldName).Gte("123").Lte("456"),
 			),
 		},
 		{
@@ -707,20 +707,20 @@ func TestQueryConverter_ConvertIsExpr(t *testing.T) {
 		name     string
 		operator string
 		col      *query.SAColumn
-		out      elastic.Query
+		out      esquery.Query
 		err      string
 	}{
 		{
 			name:     "operator is null",
 			operator: sqlparser.IsNullStr,
 			col:      keywordCol,
-			out:      newBoolQuery().MustNot(elastic.NewExistsQuery(keywordCol.FieldName)),
+			out:      newBoolQuery().MustNot(esquery.NewExistsQuery(keywordCol.FieldName)),
 		},
 		{
 			name:     "operator is not null",
 			operator: sqlparser.IsNotNullStr,
 			col:      keywordCol,
-			out:      elastic.NewExistsQuery(keywordCol.FieldName),
+			out:      esquery.NewExistsQuery(keywordCol.FieldName),
 		},
 		{
 			name:     "invalid operator",
