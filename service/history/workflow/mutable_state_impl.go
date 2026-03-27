@@ -3953,6 +3953,9 @@ func (ms *MutableStateImpl) AddActivityTaskScheduledEvent(
 		ai.WorkspaceId = command.GetWorkspaceId()
 		ai.WorkspaceAccessMode = command.GetWorkspaceAccessMode()
 	}
+	if command.GetSandboxOptions() != nil {
+		ai.SandboxOptions = command.GetSandboxOptions()
+	}
 	// TODO merge active & passive task generation
 	if !bypassTaskGeneration {
 		if err := ms.taskGenerator.GenerateActivityTasks(

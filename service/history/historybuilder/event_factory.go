@@ -245,6 +245,7 @@ func (b *EventFactory) CreateActivityTaskScheduledEvent(
 			UseWorkflowBuildId:           command.UseWorkflowBuildId,
 			Priority:                     command.Priority,
 			WorkspaceInfo:                workspaceInfo,
+			SandboxOptions:               command.SandboxOptions,
 		},
 	}
 	return event

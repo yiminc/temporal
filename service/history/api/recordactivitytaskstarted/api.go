@@ -287,6 +287,11 @@ func recordActivityTaskStarted(
 		}
 	}
 
+	// Pass through sandbox options from ActivityInfo to the worker.
+	if ai.GetSandboxOptions() != nil {
+		response.SandboxOptions = ai.GetSandboxOptions()
+	}
+
 	return response, rejectCodeAccepted, nil
 }
 

@@ -1226,6 +1226,7 @@ func (wh *WorkflowHandler) PollActivityTaskQueue(ctx context.Context, request *w
 		Priority:                    matchingResponse.Priority,
 		RetryPolicy:                 matchingResponse.RetryPolicy,
 		WorkspaceInfo:               matchingResponse.WorkspaceInfo,
+		SandboxOptions:              matchingResponse.SandboxOptions,
 	}, nil
 }
 

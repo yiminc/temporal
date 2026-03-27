@@ -22,6 +22,7 @@ import (
 	query "go.temporal.io/api/query/v1"
 	replication "go.temporal.io/api/replication/v1"
 	rules "go.temporal.io/api/rules/v1"
+	sandbox "go.temporal.io/api/sandbox/v1"
 	schedule "go.temporal.io/api/schedule/v1"
 	sdk "go.temporal.io/api/sdk/v1"
 	taskqueue "go.temporal.io/api/taskqueue/v1"
@@ -77,6 +78,7 @@ func init() {
 	importMap["temporal/api/query/v1/message.proto"] = query.File_temporal_api_query_v1_message_proto
 	importMap["temporal/api/replication/v1/message.proto"] = replication.File_temporal_api_replication_v1_message_proto
 	importMap["temporal/api/rules/v1/message.proto"] = rules.File_temporal_api_rules_v1_message_proto
+	importMap["temporal/api/sandbox/v1/message.proto"] = sandbox.File_temporal_api_sandbox_v1_message_proto
 	importMap["temporal/api/schedule/v1/message.proto"] = schedule.File_temporal_api_schedule_v1_message_proto
 	importMap["temporal/api/sdk/v1/task_complete_metadata.proto"] = sdk.File_temporal_api_sdk_v1_task_complete_metadata_proto
 	importMap["temporal/api/sdk/v1/user_metadata.proto"] = sdk.File_temporal_api_sdk_v1_user_metadata_proto

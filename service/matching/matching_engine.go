@@ -3168,6 +3168,7 @@ func (e *matchingEngineImpl) createPollActivityTaskQueueResponse(
 		Priority:                    historyResponse.Priority,
 		RetryPolicy:                 historyResponse.RetryPolicy,
 		WorkspaceInfo:               historyResponse.WorkspaceInfo,
+		SandboxOptions:              historyResponse.SandboxOptions,
 	}
 }
 

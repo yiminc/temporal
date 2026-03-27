@@ -2,11 +2,11 @@ package respondactivitytaskcompleted
 
 import (
 	"context"
+	"fmt"
 	"time"
 
-	"fmt"
-
 	enumspb "go.temporal.io/api/enums/v1"
+	"go.temporal.io/api/serviceerror"
 	workspacepb "go.temporal.io/api/workspace/v1"
 	"go.temporal.io/server/api/historyservice/v1"
 	"go.temporal.io/server/common"
@@ -119,7 +119,7 @@ func Invoke(
 			// Read-only activities must not send a workspace commit.
 			if wc := request.GetWorkspaceCommit(); wc != nil {
 				if ai.WorkspaceAccessMode == enumspb.WORKSPACE_ACCESS_MODE_READ_ONLY {
-					return nil, fmt.Errorf("read-only activity cannot commit workspace changes")
+					return nil, serviceerror.NewInvalidArgument("read-only activity cannot commit workspace changes")
 				}
 				if err := applyWorkspaceCommit(mutableState, wc); err != nil {
 					return nil, err
@@ -166,8 +166,6 @@ func Invoke(
 	return &historyservice.RespondActivityTaskCompletedResponse{}, err
 }
 
-const defaultMaxDiffSizeBytes = 100 * 1024 * 1024 // 100MB
-
 // applyWorkspaceCommit advances the workspace version and appends the diff record.
 // This runs inside the same mutable state transaction as the ActivityTaskCompleted event.
 func applyWorkspaceCommit(
@@ -176,29 +174,21 @@ func applyWorkspaceCommit(
 ) error {
 	executionInfo := ms.GetExecutionInfo()
 	if executionInfo.WorkspaceInfos == nil {
-		return fmt.Errorf("workspace %q not found", wc.GetWorkspaceId())
+		return serviceerror.NewInvalidArgument(fmt.Sprintf("workspace %q not found", wc.GetWorkspaceId()))
 	}
 
 	ws, exists := executionInfo.WorkspaceInfos[wc.GetWorkspaceId()]
 	if !exists {
-		return fmt.Errorf("workspace %q not found", wc.GetWorkspaceId())
+		return serviceerror.NewInvalidArgument(fmt.Sprintf("workspace %q not found", wc.GetWorkspaceId()))
 	}
 
 	// Validate version continuity.
 	expectedVersion := ws.CommittedVersion + 1
 	if wc.GetNewVersion() != expectedVersion {
-		return fmt.Errorf(
+		return serviceerror.NewInvalidArgument(fmt.Sprintf(
 			"workspace %q version mismatch: expected %d, got %d",
 			wc.GetWorkspaceId(), expectedVersion, wc.GetNewVersion(),
-		)
-	}
-
-	// Validate diff size.
-	if wc.GetDiffSizeBytes() > defaultMaxDiffSizeBytes {
-		return fmt.Errorf(
-			"workspace %q diff size %d bytes exceeds limit of %d bytes",
-			wc.GetWorkspaceId(), wc.GetDiffSizeBytes(), defaultMaxDiffSizeBytes,
-		)
+		))
 	}
 
 	// Advance version.
