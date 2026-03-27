@@ -276,6 +276,17 @@ func recordActivityTaskStarted(
 		NonRetryableErrorTypes: ai.RetryNonRetryableErrorTypes,
 	}
 
+	// Populate workspace info if the activity uses a workspace.
+	// Set the access mode so the worker knows whether to commit or discard.
+	if wsID := ai.GetWorkspaceId(); wsID != "" {
+		if wsInfos := mutableState.GetExecutionInfo().GetWorkspaceInfos(); wsInfos != nil {
+			if ws, ok := wsInfos[wsID]; ok {
+				response.WorkspaceInfo = ws
+				response.WorkspaceInfo.AccessMode = ai.GetWorkspaceAccessMode()
+			}
+		}
+	}
+
 	return response, rejectCodeAccepted, nil
 }
 

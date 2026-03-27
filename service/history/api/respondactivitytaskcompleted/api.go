@@ -4,13 +4,17 @@ import (
 	"context"
 	"time"
 
+	"fmt"
+
 	enumspb "go.temporal.io/api/enums/v1"
+	workspacepb "go.temporal.io/api/workspace/v1"
 	"go.temporal.io/server/api/historyservice/v1"
 	"go.temporal.io/server/common"
 	"go.temporal.io/server/common/definition"
 	"go.temporal.io/server/common/metrics"
 	"go.temporal.io/server/common/namespace"
 	"go.temporal.io/server/common/tasktoken"
+	workspaceworkflow "go.temporal.io/server/components/workspace/workflow"
 	"go.temporal.io/server/service/history/api"
 	"go.temporal.io/server/service/history/consts"
 	historyi "go.temporal.io/server/service/history/interfaces"
@@ -109,6 +113,22 @@ func Invoke(
 				// Unable to add ActivityTaskCompleted event to history
 				return nil, err
 			}
+
+			// If the activity completed with a workspace commit, advance the workspace version
+			// atomically with the activity completion (same DB transaction).
+			// Read-only activities must not send a workspace commit.
+			if wc := request.GetWorkspaceCommit(); wc != nil {
+				if ai.WorkspaceAccessMode == enumspb.WORKSPACE_ACCESS_MODE_READ_ONLY {
+					return nil, fmt.Errorf("read-only activity cannot commit workspace changes")
+				}
+				if err := applyWorkspaceCommit(mutableState, wc); err != nil {
+					return nil, err
+				}
+			}
+
+			// Release workspace lock.
+			workspaceworkflow.ReleaseWorkspaceAccess(mutableState, ai.WorkspaceId, scheduledEventID)
+
 			if !fabricateStartedEvent {
 				// leave it zero if the event is fabricated so the latency metrics are not emitted
 				attemptStartedTime = ai.StartedTime.AsTime()
@@ -144,4 +164,60 @@ func Invoke(
 		)
 	}
 	return &historyservice.RespondActivityTaskCompletedResponse{}, err
+}
+
+const defaultMaxDiffSizeBytes = 100 * 1024 * 1024 // 100MB
+
+// applyWorkspaceCommit advances the workspace version and appends the diff record.
+// This runs inside the same mutable state transaction as the ActivityTaskCompleted event.
+func applyWorkspaceCommit(
+	ms historyi.MutableState,
+	wc *workspacepb.WorkspaceCommit,
+) error {
+	executionInfo := ms.GetExecutionInfo()
+	if executionInfo.WorkspaceInfos == nil {
+		return fmt.Errorf("workspace %q not found", wc.GetWorkspaceId())
+	}
+
+	ws, exists := executionInfo.WorkspaceInfos[wc.GetWorkspaceId()]
+	if !exists {
+		return fmt.Errorf("workspace %q not found", wc.GetWorkspaceId())
+	}
+
+	// Validate version continuity.
+	expectedVersion := ws.CommittedVersion + 1
+	if wc.GetNewVersion() != expectedVersion {
+		return fmt.Errorf(
+			"workspace %q version mismatch: expected %d, got %d",
+			wc.GetWorkspaceId(), expectedVersion, wc.GetNewVersion(),
+		)
+	}
+
+	// Validate diff size.
+	if wc.GetDiffSizeBytes() > defaultMaxDiffSizeBytes {
+		return fmt.Errorf(
+			"workspace %q diff size %d bytes exceeds limit of %d bytes",
+			wc.GetWorkspaceId(), wc.GetDiffSizeBytes(), defaultMaxDiffSizeBytes,
+		)
+	}
+
+	// Advance version.
+	ws.CommittedVersion = wc.GetNewVersion()
+
+	// Append diff record if there are diff bytes.
+	if wc.GetDiffSizeBytes() > 0 {
+		ws.Diffs = append(ws.Diffs, &workspacepb.DiffRecord{
+			FromVersion:   wc.GetNewVersion() - 1,
+			ToVersion:     wc.GetNewVersion(),
+			SizeBytes:     wc.GetDiffSizeBytes(),
+			DriverName:    wc.GetDriverName(),
+			Claim:         wc.GetDiffClaim(),
+			ManifestClaim: wc.GetManifestClaim(),
+		})
+	}
+
+	// Note: sticky worker affinity fields (WorkerTaskQueue, StickyScheduleToStartTimeout)
+	// from the commit are ignored for now. Sticky routing is deferred to M6.
+
+	return nil
 }

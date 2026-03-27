@@ -17,6 +17,7 @@ import (
 	historypb "go.temporal.io/api/history/v1"
 	protocolpb "go.temporal.io/api/protocol/v1"
 	"go.temporal.io/api/serviceerror"
+	workspacepb "go.temporal.io/api/workspace/v1"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/server/api/historyservice/v1"
 	"go.temporal.io/server/api/matchingservice/v1"
@@ -36,6 +37,7 @@ import (
 	"go.temporal.io/server/common/searchattribute"
 	"go.temporal.io/server/common/tasktoken"
 	"go.temporal.io/server/common/worker_versioning"
+	workspaceworkflow "go.temporal.io/server/components/workspace/workflow"
 	"go.temporal.io/server/service/history/api"
 	"go.temporal.io/server/service/history/configs"
 	historyi "go.temporal.io/server/service/history/interfaces"
@@ -479,6 +481,29 @@ func (handler *workflowTaskCompletedHandler) handleCommandScheduleActivity(
 		return nil, nil, handler.failWorkflowTask(enumspb.WORKFLOW_TASK_FAILED_CAUSE_PENDING_ACTIVITIES_LIMIT_EXCEEDED, err)
 	}
 
+	// Ensure workspace exists if workspace_id is specified (lazy creation),
+	// then validate that the requested access mode is compatible with the
+	// current lock state.
+	var wsInfo *workspacepb.WorkspaceInfo
+	if workspaceID := attr.GetWorkspaceId(); workspaceID != "" {
+		var err error
+		wsInfo, err = workspaceworkflow.EnsureWorkspaceForActivity(handler.mutableState, workspaceID)
+		if err != nil {
+			var failWFTErr workflow.FailWorkflowTaskError
+			if errors.As(err, &failWFTErr) {
+				return nil, nil, handler.failWorkflowTask(failWFTErr.Cause, failWFTErr)
+			}
+			return nil, nil, err
+		}
+		if err := workspaceworkflow.ValidateWorkspaceAccess(wsInfo, attr.GetWorkspaceAccessMode()); err != nil {
+			var failWFTErr workflow.FailWorkflowTaskError
+			if errors.As(err, &failWFTErr) {
+				return nil, nil, handler.failWorkflowTask(failWFTErr.Cause, failWFTErr)
+			}
+			return nil, nil, err
+		}
+	}
+
 	enums.SetDefaultTaskQueueKind(&attr.GetTaskQueue().Kind)
 
 	namespace := handler.mutableState.GetNamespaceEntry().Name().String()
@@ -514,6 +539,11 @@ func (handler *workflowTaskCompletedHandler) handleCommandScheduleActivity(
 	)
 	if err != nil {
 		return nil, nil, handler.failWorkflowTaskOnInvalidArgument(enumspb.WORKFLOW_TASK_FAILED_CAUSE_SCHEDULE_ACTIVITY_DUPLICATE_ID, err)
+	}
+
+	// Acquire workspace lock now that we have the scheduled event ID.
+	if wsInfo != nil {
+		workspaceworkflow.AcquireWorkspaceAccess(wsInfo, attr.GetWorkspaceAccessMode(), event.GetEventId())
 	}
 
 	if !eagerStartActivity {
@@ -660,6 +690,7 @@ func (handler *workflowTaskCompletedHandler) handleCommandRequestCancelActivity(
 			if err != nil {
 				return nil, err
 			}
+			workspaceworkflow.ReleaseWorkspaceAccess(handler.mutableState, ai.WorkspaceId, ai.ScheduledEventId)
 			handler.activityNotStartedCancelled = true
 		}
 	}
